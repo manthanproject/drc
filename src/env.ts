@@ -13,5 +13,8 @@ export const variables = defineEnvVars({
 	GOOGLE_SA_KEY_JSON: { description: 'drc-reader service account JSON key', schema: requiredLive('GOOGLE_SA_KEY_JSON') },
 	DROPPY_LOG_ID: { description: 'DROPPY-Log spreadsheet ID (read only)', schema: requiredLive('DROPPY_LOG_ID') },
 	RETURN_ORDERS_ID: { description: 'Dropy Return Orders spreadsheet ID', schema: requiredLive('RETURN_ORDERS_ID') },
+	DRC_UPLOADER_URL: { description: 'Apps Script web app URL (DRC Uploader on warhawkchaos)', schema: requiredLive('DRC_UPLOADER_URL') },
+	DRC_UPLOADER_TOKEN: { description: 'Shared secret for DRC Uploader', schema: requiredLive('DRC_UPLOADER_TOKEN') },
+	APP_PASSWORD: { description: 'Single shared DRC login password', schema: requiredLive('APP_PASSWORD') },
 	VERCEL_REGION: { description: 'Set by Vercel at runtime', schema: (v: string | undefined) => v ?? '' }
 });
