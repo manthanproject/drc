@@ -32,6 +32,14 @@ export const GET: RequestHandler = async () => {
 		out.returnOrders = msg(e);
 	}
 
+	try {
+		const { data } = await db().from('settings').select('value').eq('key', 'velocity_last_sync').maybeSingle();
+		const v = data?.value as { ok?: boolean; at?: string; error?: string; unique?: number; fetched?: { unique?: number } } | undefined;
+		out.velocitySync = !v ? 'not run yet' : v.ok ? `ok (${v.fetched?.unique ?? 0} RTOs at ${v.at})` : `error: ${v.error} (at ${v.at})`;
+	} catch (e) {
+		out.velocitySync = msg(e);
+	}
+
 	const ok = !Object.values(out).some((v) => v?.startsWith('error'));
 	return json({ ok, ...out }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
 };
