@@ -1,5 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { DROPPY_LOG_ID, RETURN_ORDERS_ID, VERCEL_REGION } from '$app/env/private';
+import * as env from '$app/env/private';
+const { DROPPY_LOG_ID, RETURN_ORDERS_ID, VERCEL_REGION } = env;
+
+const REQUIRED = [
+	'SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'GOOGLE_SA_KEY_JSON', 'DROPPY_LOG_ID', 'RETURN_ORDERS_ID',
+	'DRC_UPLOADER_URL', 'DRC_UPLOADER_TOKEN', 'APP_PASSWORD', 'VELOCITY_API_URL', 'VELOCITY_API_KEY', 'CRON_SECRET'
+] as const;
 import { db } from '#lib/server/supabase.ts';
 import { sheetsReadonly } from '#lib/server/google.ts';
 import type { RequestHandler } from './$types';
@@ -14,6 +20,8 @@ async function sheetTitle(id: string | undefined) {
 
 export const GET: RequestHandler = async () => {
 	const out: Record<string, string | null> = { region: VERCEL_REGION ?? null };
+	const missing = REQUIRED.filter((k) => !(env as Record<string, string | undefined>)[k]);
+	out.settings = missing.length ? `error: missing ${missing.join(', ')}` : 'ok';
 
 	try {
 		const { count, error } = await db().from('settings').select('key', { count: 'exact', head: true });
