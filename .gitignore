@@ -26,3 +26,5 @@ secrets/
 .env*
 data/
 *.csv
+.vercel
+.env*
