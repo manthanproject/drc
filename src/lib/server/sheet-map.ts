@@ -2,15 +2,21 @@
 
 export type BackfillEntry = { order_no: string; stage: string; note: string; received_on: string | null };
 
-/** Approved 4 Oct 2026. Anything unmatched → closed (received, nothing pending). */
+/**
+ * Approved 4 Oct 2026, refined after the dry run of the real sheet.
+ * 'skip' = sheet says the RTO was still in transit, so it is NOT marked received (Velocity sync keeps tracking it).
+ * Anything unmatched → closed (received, nothing pending).
+ */
 export function stageFor(rtoStatus: string, items: string, claimStatus: string): string {
 	const t = rtoStatus.toLowerCase();
 	if (/dispute|claim/.test(t) || /claim/.test(claimStatus.toLowerCase()) || /rto\s*claim/.test(items.toLowerCase())) return 'claim';
-	if (/star|ready\s*stock|doesn'?t\s*want|don'?t\s*want|not\s*want|no\s*need/.test(t)) return 'ready_stock';
-	if (/call\s*not\s*pick|not\s*pick|no\s*answer|not\s*answer/.test(t)) return 'to_call';
+	if (/rto\s*in\s*transit/.test(t)) return 'skip';
+	if (/star|ready\s*stock|doesn'?t\s*want|don'?t\s*want|didn'?t\s*want|not\s*want|no\s*need|cancel|by\s*mistake|again\s*placed/.test(t)) return 'ready_stock';
+	if (/\bpick\s*up\b/.test(t)) return 'reship';
+	if (/call|pick|busy|voice|talk\s*to|back\s*later|not\s*reachable|switch(ed)?\s*off/.test(t)) return 'to_call';
 	if (/store\s*credit/.test(t)) return 'store_credit';
-	if (/hold/.test(t)) return 'hold';
-	if (/deliver|dispatch|re-?ship|pick\s*up|wants?\s*it|resend/.test(t)) return 'reship';
+	if (/hold|admin\s*pending|expir/.test(t)) return 'hold';
+	if (/deliver|dispatch|re-?ship|\bwants?\b|resend|address\s*update/.test(t)) return 'reship';
 	return 'closed';
 }
 
@@ -49,7 +55,7 @@ export function mapSheet(values: unknown[][]) {
 
 	const cell = (row: unknown[], i: number) => (i >= 0 ? String(row[i] ?? '').trim() : '');
 	const entries: BackfillEntry[] = [];
-	const report = { rows: rows.length, blankOrder: 0, multiOrderCells: [] as string[], stages: {} as Record<string, number>, defaultedToClosed: {} as Record<string, number> };
+	const report = { rows: rows.length, blankOrder: 0, skippedInTransit: [] as string[], multiOrderCells: [] as string[], stages: {} as Record<string, number>, defaultedToClosed: {} as Record<string, number> };
 
 	for (const row of rows) {
 		const nos = orderNos(cell(row, c.order));
@@ -60,6 +66,10 @@ export function mapSheet(values: unknown[][]) {
 		if (nos.length > 1) report.multiOrderCells.push(cell(row, c.order));
 		const rto = cell(row, c.rto), items = cell(row, c.items), claim = cell(row, c.status);
 		const stage = stageFor(rto, items, claim);
+		if (stage === 'skip') {
+			report.skippedInTransit.push(`${nos.join('+')}: ${rto}`);
+			continue;
+		}
 		if (stage === 'closed') report.defaultedToClosed[rto || '(blank)'] = (report.defaultedToClosed[rto || '(blank)'] ?? 0) + 1;
 		const note = [`items=${items}`, `rto=${rto}`, claim && `claim=${claim}`, cell(row, c.redelivery) && `redelivery=${cell(row, c.redelivery)}`]
 			.filter(Boolean)
