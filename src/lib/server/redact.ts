@@ -1,4 +1,4 @@
-const PII = /phone|mobile|email|address|pincode|pin_code|zipcode|landmark|(customer|consignee|buyer|receiver|billing|shipping)_?name/i;
+const PII = /phone|mobile|email|address|pincode|pin_code|zipcode|^zip$|landmark|(customer|consignee|buyer|receiver|billing|shipping)_?name|^name$/i;
 
 /** Masks customer PII and trims long arrays so payloads can be shared safely for inspection. */
 export function redact(v: unknown, depth = 0): unknown {

@@ -20,5 +20,7 @@ export const variables = defineEnvVars({
 	VELOCITY_MCP_ACCESS_TOKEN: { description: 'Velocity MCP access-token header (expires ~10-14 days, renewed manually)', schema: requiredLive('VELOCITY_MCP_ACCESS_TOKEN') },
 	VELOCITY_MCP_CLIENT: { description: 'Velocity MCP client header', schema: requiredLive('VELOCITY_MCP_CLIENT') },
 	VELOCITY_MCP_UID: { description: 'Velocity MCP uid header', schema: requiredLive('VELOCITY_MCP_UID') },
+	VELOCITY_API_URL: { description: 'Velocity Shipping API base URL', schema: requiredLive('VELOCITY_API_URL') },
+	VELOCITY_API_KEY: { description: 'Velocity API key named DRC (Settings > API Keys, Bearer, up to 365 days)', schema: requiredLive('VELOCITY_API_KEY') },
 	VERCEL_REGION: { description: 'Set by Vercel at runtime', schema: (v: string | undefined) => v ?? '' }
 });
