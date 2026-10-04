@@ -1,0 +1,37 @@
+import { json } from '@sveltejs/kit';
+import { DROPPY_LOG_ID, RETURN_ORDERS_ID, VERCEL_REGION } from '$app/env/private';
+import { db } from '#lib/server/supabase.ts';
+import { sheetsReadonly } from '#lib/server/google.ts';
+import type { RequestHandler } from './$types';
+
+const msg = (e: unknown) => `error: ${e instanceof Error ? e.message : String(e)}`;
+
+async function sheetTitle(id: string | undefined) {
+	if (!id) return 'error: sheet id missing';
+	const r = await sheetsReadonly().spreadsheets.get({ spreadsheetId: id, fields: 'properties.title' });
+	return `ok (${r.data.properties?.title})`;
+}
+
+export const GET: RequestHandler = async () => {
+	const out: Record<string, string | null> = { region: VERCEL_REGION ?? null };
+
+	try {
+		const { count, error } = await db().from('settings').select('key', { count: 'exact', head: true });
+		out.supabase = error ? msg(error.message) : `ok (${count} settings)`;
+	} catch (e) {
+		out.supabase = msg(e);
+	}
+	try {
+		out.droppyLog = await sheetTitle(DROPPY_LOG_ID);
+	} catch (e) {
+		out.droppyLog = msg(e);
+	}
+	try {
+		out.returnOrders = await sheetTitle(RETURN_ORDERS_ID);
+	} catch (e) {
+		out.returnOrders = msg(e);
+	}
+
+	const ok = !Object.values(out).some((v) => v?.startsWith('error'));
+	return json({ ok, ...out }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
+};

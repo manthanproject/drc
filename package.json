@@ -25,7 +25,9 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@googleapis/sheets": "^18.1.0",
 		"@supabase/supabase-js": "^2.117.2",
+		"google-auth-library": "^11.1.0",
 		"googleapis": "^183.0.0"
 	}
 }
