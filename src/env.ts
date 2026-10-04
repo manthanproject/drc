@@ -16,5 +16,9 @@ export const variables = defineEnvVars({
 	DRC_UPLOADER_URL: { description: 'Apps Script web app URL (DRC Uploader on warhawkchaos)', schema: requiredLive('DRC_UPLOADER_URL') },
 	DRC_UPLOADER_TOKEN: { description: 'Shared secret for DRC Uploader', schema: requiredLive('DRC_UPLOADER_TOKEN') },
 	APP_PASSWORD: { description: 'Single shared DRC login password', schema: requiredLive('APP_PASSWORD') },
+	VELOCITY_MCP_URL: { description: 'Velocity MCP endpoint', schema: requiredLive('VELOCITY_MCP_URL') },
+	VELOCITY_MCP_ACCESS_TOKEN: { description: 'Velocity MCP access-token header (expires ~10-14 days, renewed manually)', schema: requiredLive('VELOCITY_MCP_ACCESS_TOKEN') },
+	VELOCITY_MCP_CLIENT: { description: 'Velocity MCP client header', schema: requiredLive('VELOCITY_MCP_CLIENT') },
+	VELOCITY_MCP_UID: { description: 'Velocity MCP uid header', schema: requiredLive('VELOCITY_MCP_UID') },
 	VERCEL_REGION: { description: 'Set by Vercel at runtime', schema: (v: string | undefined) => v ?? '' }
 });
