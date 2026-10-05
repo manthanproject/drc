@@ -1,6 +1,8 @@
 <script lang="ts">
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import ActionRow from '#lib/components/ActionRow.svelte';
+	import { page } from '$app/state';
+	import { rtoHref } from '#lib/scan.ts';
 	import { BUCKETS, FILTERS, inr, orderLabel, type ListRow } from '#lib/dashboard.ts';
 	import type { PageProps } from './$types';
 
@@ -64,7 +66,7 @@
 							<span class="pill p-{BUCKETS[r.bucket].tone}">{BUCKETS[r.bucket].label}</span>
 						</div>
 					{/snippet}
-					<a class="row card" class:flat={r.sheetOnly} href="/rto/{r.rto.id}">{@render body()}</a>
+					<a class="row card" class:flat={r.sheetOnly} href={rtoHref(r.rto.id, page.url.pathname + page.url.search)}>{@render body()}</a>
 				{/each}
 			</div>
 		{:else}

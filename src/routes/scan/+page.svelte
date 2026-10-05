@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { invalidate } from '$app/navigation';
+	import { invalidate, pushState } from '$app/navigation';
+	import { page } from '$app/state';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import Scanner from '#lib/components/Scanner.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
+	import { rtoHref } from '#lib/scan.ts';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, paymentBreakdown } from '#lib/dashboard.ts';
 	import type { PageProps } from './$types';
 
@@ -49,6 +51,7 @@
 
 	async function open(id: string) {
 		packing = null;
+		if (page.state.card !== id) pushState('', { card: id }); // phone back closes this card instead of leaving Scan
 		const r = await fetch(`/api/rto/${id}/detail`);
 		if (!r.ok) {
 			findErr = 'Could not open this RTO.';
@@ -58,11 +61,26 @@
 		fetch(`/api/rto/${id}/packing`).then((p) => p.json()).then((p) => (packing = p)).catch(() => (packing = { state: 'error' }));
 	}
 
-	function saved(res: { event_id: number; label: string }) {
-		undo = { text: `${orderLabel(detail.rto)} saved as ${res.label}`, eventId: res.event_id };
+	/** Close the card and drop its history entry, so back from here goes where it went before the scan. */
+	function closeCard() {
 		detail = null;
 		matches = null;
 		code = '';
+		if (page.state.card) history.back();
+	}
+
+	// Phone / browser back while a card is open → close the card, stay on Scan
+	$effect(() => {
+		if (!page.state.card && detail) {
+			detail = null;
+			matches = null;
+			code = '';
+		}
+	});
+
+	function saved(res: { event_id: number; label: string }) {
+		undo = { text: `${orderLabel(detail.rto)} saved as ${res.label}`, eventId: res.event_id };
+		closeCard();
 		invalidate('drc:today');
 		scanner?.focusInput();
 	}
@@ -156,7 +174,7 @@
 					{:else if packing.state === 'purged'}<span class="muted small">Packing video deleted from Drive (PC archive only)</span>
 					{:else if packing.state === 'missing'}<span class="muted small">No packing video found for this AWB</span>
 					{:else}<span class="muted small">Packing video lookup failed</span>{/if}
-					<a class="small" href="/rto/{r.id}">Open full page</a>
+					<a class="small" href={rtoHref(r.id, '/scan')}>Open full page</a>
 					{#if trackingUrl(r)}<a class="small" href={trackingUrl(r)} target="_blank" rel="noopener noreferrer">Track</a>{/if}
 				</div>
 			</div>
@@ -167,13 +185,13 @@
 					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} onsaved={saved} />
 				</div>
 			{/if}
-			<button class="linkbtn" onclick={() => { detail = null; matches = null; code = ''; scanner?.focusInput(); }}>Not this parcel? Scan again</button>
+			<button class="linkbtn" onclick={() => { closeCard(); scanner?.focusInput(); }}>Not this parcel? Scan again</button>
 		{/if}
 
 		<div class="card">
 			<div class="todayhead"><b>Scanned today</b><span class="muted small">{data.today.length}</span></div>
 			{#each data.today as t (t.id)}
-				<a class="todayrow" href="/rto/{t.id}"><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
+				<a class="todayrow" href={rtoHref(t.id, '/scan')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
 			{:else}
 				<p class="muted small">Nothing yet today.</p>
 			{/each}

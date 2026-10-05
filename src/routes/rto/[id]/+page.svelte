@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, afterNavigate } from '$app/navigation';
+	import { page } from '$app/state';
+	import { rtoReturnedDraft } from '#lib/messages.ts';
+	import { safePath } from '#lib/scan.ts';
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
@@ -14,6 +17,34 @@
 	const r = $derived(data.rto);
 	const bucket = $derived(BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)]);
 	let undo = $state<{ text: string; eventId: number } | null>(null);
+
+	// Back: to the page you came from (Scan, Home, All RTOs with its filter); from a link or reload, use ?from
+	let cameFrom = $state<string | null>(null);
+	afterNavigate(({ from }) => {
+		if (from?.url && !from.url.pathname.startsWith('/rto/')) cameFrom = from.url.pathname + from.url.search;
+	});
+	const fromParam = $derived(safePath(page.url.searchParams.get('from')));
+	const backHref = $derived(cameFrom ?? fromParam ?? '/rtos');
+	const navActive = $derived(backHref.startsWith('/scan') ? 'scan' : backHref === '/' ? 'home' : 'all');
+
+	// WhatsApp: a ready-to-send draft to copy (playbook template E), never opens WhatsApp
+	let showDraft = $state(false);
+	let draft = $state('');
+	let copied = $state<'' | 'msg' | 'phone'>('');
+	function openDraft() {
+		draft = rtoReturnedDraft(r);
+		showDraft = !showDraft;
+		copied = '';
+	}
+	async function copy(text: string, what: 'msg' | 'phone') {
+		try {
+			await navigator.clipboard.writeText(text);
+			copied = what;
+		} catch {
+			copied = '';
+			err = 'Copy blocked by the browser: select the text and copy it by hand.';
+		}
+	}
 	let packing = $state<{ state: string; url?: string } | null>(null);
 	let busy = $state(false);
 	let err = $state('');
@@ -61,7 +92,7 @@
 
 <div class="app">
 	<header class="topbar">
-		<a class="back" href="/rtos" aria-label="Back to All RTOs">‹</a>
+		<a class="back" href={backHref} aria-label="Back">‹</a>
 		<h1>{orderLabel(r)}</h1>
 		<span class="pill p-{bucket.tone}">{bucket.label}</span>
 	</header>
@@ -107,9 +138,21 @@
 				<p class="small muted">After {data.maxCalls} unanswered calls it moves to Hold.</p>
 				<div class="three">
 					<a class="go okb" href="tel:{phone}">Call</a>
-					<a class="go" href="https://wa.me/91{r.customer_phone10}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+					<button class="go" class:sel={showDraft} onclick={openDraft}>WhatsApp</button>
 					{#if r.stage === 'to_call'}<button class="go" disabled={busy} onclick={() => act('call_no_answer')}>No answer</button>{/if}
 				</div>
+				{#if showDraft}
+					<div class="draft">
+						<div class="drafthead">
+							<span class="small muted">Send to</span>
+							<b class="mono">{phone}</b>
+							<button class="mini" onclick={() => copy(phone ?? '', 'phone')}>{copied === 'phone' ? 'Copied ✓' : 'Copy number'}</button>
+						</div>
+						<label class="small muted" for="wa-draft">Message (RTO returned, from your CS playbook). Edit if needed:</label>
+						<textarea id="wa-draft" rows="13" bind:value={draft}></textarea>
+						<button class="go okb full" onclick={() => copy(draft, 'msg')}>{copied === 'msg' ? 'Copied ✓ Paste it in WhatsApp' : 'Copy message'}</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -132,7 +175,7 @@
 		</div>
 	</main>
 </div>
-<BottomNav active="all" />
+<BottomNav active={navActive} />
 
 <style>
 	.stack { display: flex; flex-direction: column; gap: 12px; }
@@ -153,6 +196,12 @@
 	.three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 	.go { min-height: 48px; display: grid; place-items: center; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; }
 	.okb { background: var(--ok); border-color: var(--ok); color: #fff; }
+	.go.sel { border: 2px solid var(--acc); }
+	.full { width: 100%; }
+	.draft { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+	.drafthead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.mini { height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 12.5px; cursor: pointer; }
+	.draft textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 10px 12px; font-size: 14px; line-height: 1.45; resize: vertical; }
 	.err { color: var(--bad); font-weight: 600; margin: 0; }
 	.notes { white-space: pre-line; font-size: 13.5px; margin: 6px 0 0; }
 	.ev { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }

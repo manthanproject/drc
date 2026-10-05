@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
+	import { rtoHref } from '#lib/scan.ts';
 	import { inr, windowText, ageText, type ActionItem } from '#lib/dashboard.ts';
 	let { item }: { item: ActionItem } = $props();
 	const win = $derived(windowText(item));
@@ -50,12 +52,12 @@
 		<div class="acts">
 			<button class="yes" disabled={busy} onclick={() => decide('reship_confirm')}>Confirm received</button>
 			<button class="no" disabled={busy} onclick={() => decide('reship_reject')}>No, sent new stock</button>
-			{#if item.rto}<a class="trk" href="/rto/{item.rto.id}">Open</a>{/if}
+			{#if item.rto}<a class="trk" href={rtoHref(item.rto.id, page.url.pathname + page.url.search)}>Open</a>{/if}
 		</div>
 		{#if err}<div class="err" role="alert">{err}</div>{/if}
 	</div>
 {:else if item.rto}
-	<a class="row" href="/rto/{item.rto.id}">{@render body()}</a>
+	<a class="row" href={rtoHref(item.rto.id, page.url.pathname + page.url.search)}>{@render body()}</a>
 {:else}
 	<div class="row">{@render body()}</div>
 {/if}

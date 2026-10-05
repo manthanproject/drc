@@ -51,6 +51,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			return { text: `Re-ship #${p.reship_order_no} found (${courierWord(p.reship_courier_status)})`, who, muted: false };
 		case 'reship_withdrawn':
 			return { text: `Re-ship #${p.reship_order_no} no longer counts (cancelled or changed)`, who, muted: false };
+		case 'test_reset':
+			return { text: `Test scans cleared, back to ${stageName(p.restored_stage)}`, who: 'Staff (SQL)', muted: true };
 		case 'unknown_parcel':
 			return { text: `Saved as unknown parcel (scanned ${p.code ?? '—'})`, who, muted: false };
 		default:

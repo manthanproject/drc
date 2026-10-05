@@ -23,9 +23,9 @@
 			{#if l?.image}<img src={l.image} alt="" width="44" height="44" loading="lazy" />{:else}<span class="ph" aria-hidden="true"></span>{/if}
 			<span class="body">
 				{#if it.sku}
-					<a href={l?.url ?? searchUrl(it.sku)} target="_blank" rel="noopener noreferrer">{it.title || it.sku}</a>
+					<a class="name" href={l?.url ?? searchUrl(it.sku)} target="_blank" rel="noopener noreferrer" title={it.title || it.sku}>{it.title || it.sku}</a>
 				{:else}
-					<span class="t">{it.title || 'Item'}</span>
+					<span class="t name" title={it.title || 'Item'}>{it.title || 'Item'}</span>
 				{/if}
 				<span class="meta">
 					{#if asin}<a class="asin mono" href={amazonUrl(asin)} target="_blank" rel="noopener noreferrer" title="Open on Amazon.com">{asin}</a>
@@ -47,7 +47,8 @@
 	.items { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 	li { display: flex; gap: 10px; align-items: center; }
 	img, .ph { width: 44px; height: 44px; flex: none; border-radius: 10px; object-fit: cover; background: var(--sunk); border: 1px solid var(--line); }
-	.body { min-width: 0; display: flex; flex-direction: column; }
+	.body { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+	.name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 	a, .t { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
 	a { color: var(--acc); text-decoration: underline; text-underline-offset: 2px; }
 	.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }

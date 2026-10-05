@@ -5,7 +5,9 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			card?: string; // RTO id of the card open on /scan (phone back closes it)
+		}
 		// interface Platform {}
 	}
 }

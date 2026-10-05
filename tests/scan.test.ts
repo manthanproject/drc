@@ -75,3 +75,13 @@ test('payment breakdown: partial shows paid online + COD (real #3544 numbers)', 
 	assert.deepEqual(paymentBreakdown({ payment_mode: 'prepaid', order_value: 998, amount_collected: 998 }), { label: 'Prepaid · ₹998', detail: 'Paid online in full' });
 	assert.equal(paymentBreakdown({ payment_mode: 'partial', order_value: 3000, amount_collected: null }).detail, 'Split not known');
 });
+
+test('back links: same-site paths only', async () => {
+	const { safePath, rtoHref } = await import('../src/lib/scan.ts');
+	assert.equal(safePath('/rtos?f=call'), '/rtos?f=call');
+	assert.equal(safePath('scan'), '/scan');
+	assert.equal(safePath('//evil.com'), null);
+	assert.equal(safePath('https://evil.com'), null);
+	assert.equal(safePath('/rto/abc'), null);
+	assert.equal(rtoHref('abc', '/rtos?f=call'), '/rto/abc?from=%2Frtos%3Ff%3Dcall');
+});

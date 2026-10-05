@@ -61,3 +61,13 @@ export function istTomorrow(now: number): string {
 	const d = new Date(now + 5.5 * 3_600_000 + 86_400_000);
 	return d.toISOString().slice(0, 10);
 }
+
+/** Only same-site paths for ?from= back links ('scan' kept for older links). Never '//x' or 'https://x'. */
+export function safePath(v: string | null | undefined): string | null {
+	if (!v) return null;
+	if (v === 'scan') return '/scan';
+	return v.startsWith('/') && !v.startsWith('//') && !v.startsWith('/\\') && !v.startsWith('/rto/') ? v : null;
+}
+
+/** Link to an RTO page that remembers where it was opened from. */
+export const rtoHref = (id: string, from: string) => `/rto/${id}?from=${encodeURIComponent(from)}`;
