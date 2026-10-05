@@ -79,7 +79,17 @@ const settings = [
 	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 },
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
 ];
-const rtoItems = rows.map((r) => ({ rto_id: r.id, sku: `SKU-${r.order_no}` }));
+const rtoItems = rows.map((r, i) => ({ id: `item-${i}`, rto_id: r.id, sku: `SKU-${r.order_no}`, title: `Item of #${r.order_no}`, qty: 1, is_gift: false, ready_stock_state: 'na' }));
+// #3048: real dropy.in SKUs (2 real, 1 fake) + a free gift, and an address, for the product-link check
+{ const r = rows.find((x) => x.order_no === '3048');
+  r.ship = { full_address: 'Flat 2, MG Road', city: 'Gulbarga', state: 'Karnataka', zip: '585102' };
+  for (let k = rtoItems.length - 1; k >= 0; k--) if (rtoItems[k].rto_id === r.id) rtoItems.splice(k, 1);
+  rtoItems.push(
+    { id: 'it-a', rto_id: r.id, sku: 'Dropy-B0CWJSFYWT', title: 'Dr. Westin Childs T2 Cream Thyroid Support Lotion', qty: 1, is_gift: false, ready_stock_state: 'na' },
+    { id: 'it-b', rto_id: r.id, sku: 'Dropy-B0F67B33PQ', title: 'ROUND LAB Birch Juice Icy Cooling Eye Stick', qty: 2, is_gift: false, ready_stock_state: 'na' },
+    { id: 'it-c', rto_id: r.id, sku: 'Dropy-B0FAKE12345', title: 'Item that is not on the store', qty: 1, is_gift: false, ready_stock_state: 'na' },
+    { id: 'it-d', rto_id: r.id, sku: null, title: 'Foaming cleanser sample', qty: 1, is_gift: true, ready_stock_state: 'na' }); }
+for (const r of rows) r.amount_collected = r.payment_mode === 'prepaid' ? r.order_value : r.payment_mode === 'partial' ? Math.round(r.order_value * 0.26 * 100) / 100 : 0;
 for (const r of rows) Object.assign(r, { callback_attempts: 0, refund_state: r.refund_state ?? 'na', scanned_at: null, reship_state: r.reship_state ?? 'none' });
 settings.push({ key: 'max_call_attempts', value: 3 });
 const events = [];

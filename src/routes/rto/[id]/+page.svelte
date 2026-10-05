@@ -4,7 +4,9 @@
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
-	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly } from '#lib/dashboard.ts';
+	import ItemList from '#lib/components/ItemList.svelte';
+	import { addressLines } from '#lib/products.ts';
+	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown } from '#lib/dashboard.ts';
 	import { describe } from '#lib/history.ts';
 	import type { PageProps } from './$types';
 
@@ -19,6 +21,8 @@
 	const MONEY: Record<string, [string, string]> = {
 		due: ['Refund due', 'p-bad'], done: ['Refunded', 'p-ok'], credit_due: ['Store credit to give', 'p-warn'], credit_done: ['Store credit given', 'p-ok']
 	};
+	const pay = $derived(paymentBreakdown(r));
+	const addr = $derived(addressLines(r.ship));
 	const phone = $derived(r.customer_phone10 ? `+91${r.customer_phone10}` : null);
 	const paid = $derived(r.payment_mode === 'partial' ? num(r.amount_collected) : num(r.order_value));
 
@@ -68,20 +72,15 @@
 		<div class="card">
 			<dl>
 				<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
-				<dt>Payment</dt><dd>{(r.payment_mode ?? '—').toUpperCase()} · {inr(num(r.order_value))}</dd>
+				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 				{#if MONEY[r.refund_state]}<dt>Money</dt><dd><span class="pill {MONEY[r.refund_state][1]}">{MONEY[r.refund_state][0]} {inr(paid)}</span></dd>{/if}
 				<dt>Courier</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
 				{#if r.rto_delivered_at}<dt>Delivered back</dt><dd>{dateShort(r.rto_delivered_at)}</dd>{/if}
 				{#if r.last_event_text}<dt>Last courier event</dt><dd>{r.last_event_text}{r.last_event_at ? `, ${dateShort(r.last_event_at)}` : ''}</dd>{/if}
 				{#if r.reship_date}<dt>Re-ship date</dt><dd>{dateShort(r.reship_date + 'T12:00:00Z')}</dd>{/if}
 			</dl>
-			{#if data.items.length}
-				<ul class="items">
-					{#each data.items as it (it.id)}
-						<li>{it.title || it.sku || "Item"}{#if it.qty > 1} ×{it.qty}{/if}{#if it.is_gift} <span class="pill p-acc">free gift</span>{/if}{#if it.ready_stock_state === 'in_stock'} <span class="pill p-ok">in Ready Stock</span>{/if}</li>
-					{/each}
-				</ul>
-			{/if}
+			{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
+			{#if data.items.length}{#key r.id}<ItemList items={data.items} rtoId={r.id} />{/key}{/if}
 			<div class="links">
 				{#if packing?.state === 'found'}<a href={packing.url} target="_blank" rel="noopener noreferrer">▶ Packing video</a>
 				{:else if packing?.state === 'purged'}<span class="muted small">Packing video deleted (PC archive)</span>
@@ -141,7 +140,9 @@
 	dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 13.5px; }
 	dt { color: var(--muted); }
 	dd { margin: 0; font-weight: 600; text-align: right; }
-	.items { margin: 10px 0 0; padding-left: 18px; font-size: 13.5px; }
+	.sub { display: block; font-weight: 500; font-size: 12.5px; color: var(--muted); }
+	.addr { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--sunk); font-size: 13px; line-height: 1.45; }
+	.addr .small { display: block; }
 	.links { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 	.links a { color: var(--acc); font-weight: 600; font-size: 13.5px; }
 	.okcard { background: var(--ok-soft); border-color: transparent; }

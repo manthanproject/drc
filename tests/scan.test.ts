@@ -67,3 +67,11 @@ test('an unknown parcel is found again by the code it was saved with', () => {
 	assert.equal(r.by, 'awb');
 	assert.equal(r.matches[0], u);
 });
+
+test('payment breakdown: partial shows paid online + COD (real #3544 numbers)', async () => {
+	const { paymentBreakdown } = await import('../src/lib/dashboard.ts');
+	assert.deepEqual(paymentBreakdown({ payment_mode: 'partial', order_value: 4968, amount_collected: 1301.25 }), { label: 'Partial · ₹4,968', detail: '₹1,301 paid online + ₹3,667 COD' });
+	assert.deepEqual(paymentBreakdown({ payment_mode: 'cod', order_value: 4097, amount_collected: 0 }), { label: 'COD · ₹4,097', detail: 'Nothing paid upfront' });
+	assert.deepEqual(paymentBreakdown({ payment_mode: 'prepaid', order_value: 998, amount_collected: 998 }), { label: 'Prepaid · ₹998', detail: 'Paid online in full' });
+	assert.equal(paymentBreakdown({ payment_mode: 'partial', order_value: 3000, amount_collected: null }).detail, 'Split not known');
+});

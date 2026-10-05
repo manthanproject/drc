@@ -4,7 +4,9 @@
 	import Scanner from '#lib/components/Scanner.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
-	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl } from '#lib/dashboard.ts';
+	import ItemList from '#lib/components/ItemList.svelte';
+	import { addressLines } from '#lib/products.ts';
+	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, paymentBreakdown } from '#lib/dashboard.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -93,6 +95,8 @@
 	const r = $derived(detail?.rto);
 	const bucket = $derived(r ? BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)] : null);
 	const already = $derived(r && STAFF.has(r.stage));
+	const pay = $derived(r ? paymentBreakdown(r) : { label: '', detail: null });
+	const addr = $derived(r ? addressLines(r.ship) : []);
 </script>
 
 <div class="app">
@@ -140,15 +144,12 @@
 				{#if already}<div class="warnline">Already processed: {bucket?.label}. Pick again only to change it.</div>{/if}
 				<dl>
 					<dt>Courier</dt><dd>{r.carrier_name ?? '—'} <span class="mono">{r.forward_awb ?? ''}</span></dd>
-					<dt>Payment</dt><dd>{(r.payment_mode ?? '—').toUpperCase()}</dd>
+					<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 					<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
 					{#if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
 				</dl>
-				{#if detail.items.length}
-					<ul class="items">
-						{#each detail.items as it (it.id)}<li>{it.title || it.sku || "Item"}{#if it.qty > 1} ×{it.qty}{/if}{#if it.is_gift} <span class="pill p-acc">free gift</span>{/if}</li>{/each}
-					</ul>
-				{/if}
+				{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
+				{#if detail.items.length}{#key r.id}<ItemList items={detail.items} rtoId={r.id} />{/key}{/if}
 				<div class="pack">
 					{#if !packing}<span class="muted small">Looking for the packing video…</span>
 					{:else if packing.state === 'found'}<a href={packing.url} target="_blank" rel="noopener noreferrer">▶ Packing video (DROPPY-Log)</a>
@@ -205,7 +206,9 @@
 	dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13.5px; }
 	dt { color: var(--muted); }
 	dd { margin: 0; font-weight: 600; text-align: right; }
-	.items { margin: 10px 0 0; padding-left: 18px; font-size: 13.5px; }
+	.sub { display: block; font-weight: 500; font-size: 12.5px; color: var(--muted); }
+	.addr { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--sunk); font-size: 13px; line-height: 1.45; }
+	.addr .small { display: block; }
 	.pack { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 	.pack a { color: var(--acc); font-weight: 600; font-size: 13.5px; }
 	.linkbtn { background: none; border: 0; color: var(--acc); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 4px; }

@@ -432,3 +432,24 @@ export function syncState(v: { ok?: boolean; at?: string; error?: string } | nul
 	const fresh = now - (ms(v.at) ?? 0) <= 30 * 60_000;
 	return { text: agoText(v.at, now), ok: fresh };
 }
+
+/** Payment line for cards: partial orders show the split (paid online + COD), from Velocity's cod_amount. */
+export function paymentBreakdown(r: { payment_mode: string | null; order_value: number | string | null; amount_collected?: number | string | null }): {
+	label: string;
+	detail: string | null;
+} {
+	const total = num(r.order_value);
+	const known = r.amount_collected !== null && r.amount_collected !== undefined && r.amount_collected !== '';
+	const paid = num(r.amount_collected);
+	const cod = Math.max(total - paid, 0);
+	switch (r.payment_mode) {
+		case 'prepaid':
+			return { label: `Prepaid · ${inr(total)}`, detail: 'Paid online in full' };
+		case 'partial':
+			return { label: `Partial · ${inr(total)}`, detail: known ? `${inr(paid)} paid online + ${inr(cod)} COD` : 'Split not known' };
+		case 'cod':
+			return { label: `COD · ${inr(total)}`, detail: 'Nothing paid upfront' };
+		default:
+			return { label: inr(total), detail: null };
+	}
+}
