@@ -7,11 +7,13 @@ import type { RequestHandler } from './$types';
 
 export const config = { maxDuration: 60 };
 
-// Hard time budget, so a run ALWAYS finishes and saves its progress, even if Velocity's search is slow
-// and even if Vercel only allows its 10 s default. Runs every 10 min; each run checks what fits.
-const BUDGET_MS = 8000;
-const MIN_WAVE_MS = 2500; // don't start another wave of searches with less time than this left
-const PARALLEL = 4;
+// Hard time budget, so a run ALWAYS finishes and saves its progress (function limit is 60 s).
+// Measured 5 Oct: Velocity free-text search takes 2–7+ s (status filters ~1.5 s); 4 at once all hit 7 s,
+// so search 2 at a time with up to 15 s each. Runs every 10 min; each run checks what fits.
+const BUDGET_MS = 40_000;
+const SEARCH_TIMEOUT_MS = 15_000;
+const MIN_WAVE_MS = 16_000; // start another wave only if a full search timeout still fits
+const PARALLEL = 2;
 const BATCH = 16;
 
 async function search(term: string, timeoutMs: number) {
@@ -53,15 +55,18 @@ export const POST: RequestHandler = async ({ request }) => {
 		const results: ({ id: string } & Partial<ReshipMatch>)[] = [];
 		let failed = 0;
 		let attempted = 0;
+		const searchMs: number[] = [];
 		for (let i = 0; i < todo.length; i += PARALLEL) {
 			if (left() < MIN_WAVE_MS) break; // the rest waits for the next run (least-recently-checked first)
 			const chunk = todo.slice(i, i + PARALLEL);
 			attempted += chunk.length;
-			const timeoutMs = Math.max(left() - 800, 1000);
+			const timeoutMs = Math.min(SEARCH_TIMEOUT_MS, Math.max(left() - 800, 1000));
 			const wave = await Promise.all(
 				chunk.map(async (r) => {
 					try {
+						const t0 = Date.now();
 						const rows = await search(searchTermFor(r.order_no), timeoutMs);
+						searchMs.push(Date.now() - t0);
 						const m = pickReship({ order_no: r.order_no, rto_delivered_at: r.rto_delivered_at, skus: skus.get(r.id) ?? [] }, rows);
 						return { id: r.id, ...(m ?? {}) };
 					} catch (e) {
@@ -78,7 +83,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (e3) throw new Error(`record_reship_checks: ${e3.message}`);
 		const result = {
 			ok: true, at: new Date().toISOString(), ms: Date.now() - started,
-			queued: todo.length, attempted, failed, ...(rec as object)
+			queued: todo.length, attempted, failed,
+			searchMs: searchMs.length ? { min: Math.min(...searchMs), max: Math.max(...searchMs) } : null,
+			...(rec as object)
 		};
 		await save(result);
 		return json(result);
