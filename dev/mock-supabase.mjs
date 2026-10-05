@@ -79,7 +79,14 @@ const settings = [
 	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 },
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
 ];
-const tables = { rtos: rows, claims: [], claim_money: [], settings };
+const rtoItems = rows.map((r) => ({ rto_id: r.id, sku: `SKU-${r.order_no}` }));
+const tables = { rtos: rows, claims: [], claim_money: [], settings, rto_items: rtoItems };
+
+// Fake Velocity /shipments search for the re-ship check (VELOCITY_API_URL=http://127.0.0.1:54321/velocity)
+// MOCK_VEL_DELAY_MS = answer time per search; order MOCK_VEL_HANG never answers.
+const VEL_DELAY = Number(process.env.MOCK_VEL_DELAY_MS ?? 300);
+const VEL_HANG = process.env.MOCK_VEL_HANG ?? '';
+let velCalls = 0;
 
 let eventId = 100;
 const rpcLog = [];
@@ -100,15 +107,39 @@ http.createServer(async (req, res) => {
 			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ event_id: ++eventId, from, to: r.stage }));
 			return;
 		}
+		if (fn === 'record_reship_checks') {
+			const found = (args.p_rows ?? []).filter((x) => x.reship_order_no).length;
+			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ checked: (args.p_rows ?? []).length, found, new: found }));
+			return;
+		}
 		res.writeHead(404).end('{}');
 		return;
 	}
+	if (u.pathname === '/velocity/shipments') {
+		let body = '';
+		for await (const c of req) body += c;
+		const { search } = JSON.parse(body || '{}');
+		velCalls++;
+		if (VEL_HANG && (VEL_HANG === 'ALL' || search === VEL_HANG)) return; // never answers
+		await new Promise((r) => setTimeout(r, VEL_DELAY));
+		const data = search === '2954'
+			? [{ attributes: { order: { display_id: '#Dropy-2954-1' }, created_at: new Date(NOW - 4 * DAY).toISOString(), status: 'delivered', tracking_number: 'TEST000009', items: [{ sku: 'SKU-2954' }] } }]
+			: [];
+		res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data, meta: { total: data.length } }));
+		return;
+	}
+	if (u.pathname === '/__vel_calls') { res.writeHead(200).end(String(velCalls)); return; }
 	if (u.pathname === '/__rpc_log') { res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(rpcLog)); return; }
 	const t = u.pathname.replace('/rest/v1/', '');
 	let data = tables[t];
 	if (!data) { res.writeHead(404).end('{}'); return; }
-	const keyIn = u.searchParams.get('key');
-	if (keyIn?.startsWith('in.(')) { const ks = keyIn.slice(4, -1).split(','); data = data.filter((r) => ks.includes(r.key)); }
+	// minimal PostgREST filters: col=eq.x, col=in.(a,b), col=not.is.null, order=col.asc.nullsfirst
+	for (const [k, v] of u.searchParams) {
+		if (['select', 'order', 'offset', 'limit'].includes(k)) continue;
+		if (v.startsWith('eq.')) data = data.filter((r) => String(r[k]) === v.slice(3));
+		else if (v.startsWith('in.(')) { const vs = v.slice(4, -1).split(','); data = data.filter((r) => vs.includes(String(r[k] ?? 'none'))); }
+		else if (v === 'not.is.null') data = data.filter((r) => r[k] != null);
+	}
 	const off = Number(u.searchParams.get('offset') ?? 0), lim = Number(u.searchParams.get('limit') ?? 1e9);
 	const range = req.headers.range?.match(/(\d+)-(\d+)/);
 	data = range ? data.slice(+range[1], +range[2] + 1) : data.slice(off, off + lim);
