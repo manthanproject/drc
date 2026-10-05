@@ -1,3 +1,4 @@
+import { error } from '@sveltejs/kit';
 import { APP_PASSWORD } from '$app/env/private';
 import { same } from './auth.ts';
 
@@ -30,4 +31,12 @@ export async function validSession(value: string | undefined): Promise<boolean> 
 /** Only same-site paths, never "//evil.com" or absolute URLs. */
 export function safeNext(next: string | null): string {
 	return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/';
+}
+
+/** API calls from the app (login cookie) or from PowerShell (x-drc-pass). Throws 401 otherwise. */
+export async function requireUser(request: Request, cookieValue: string | undefined): Promise<void> {
+	if (await validSession(cookieValue)) return;
+	const pass = request.headers.get('x-drc-pass');
+	if (APP_PASSWORD && pass !== null && same(pass, APP_PASSWORD)) return;
+	error(401, 'Log in first');
 }

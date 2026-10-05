@@ -125,3 +125,15 @@ test('Indian rupee format', () => {
 	assert.equal(inr(188661), '₹1,88,661');
 	assert.equal(inr(32867.72), '₹32,868');
 });
+
+test('re-ship suggestion replaces the MDND line and keeps urgency order', () => {
+	const pending = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(5), order_no: '3544', reship_state: 'pending', reship_order_no: '3544-1', reship_created_at: ago(4.9) });
+	const rejected = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(6), reship_state: 'rejected', reship_order_no: '1002-1' });
+	const a = needsAction([pending, rejected], [], R, NOW);
+	const p = a.find((i) => i.rto === pending)!;
+	assert.equal(p.kind, 'reship_found');
+	assert.equal(p.title, '#3544 re-shipped as #3544-1');
+	assert.equal(p.tone, 'ok');
+	assert.equal(a.find((i) => i.rto === rejected)!.kind, 'mdnd');
+	assert.deepEqual(a.map((i) => i.rto), [rejected, pending]); // 1 d left before 2 d left
+});

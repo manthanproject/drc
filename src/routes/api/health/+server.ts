@@ -48,6 +48,15 @@ export const GET: RequestHandler = async () => {
 		out.velocitySync = msg(e);
 	}
 
+	try {
+		const { data } = await db().from('settings').select('value').eq('key', 'reship_last_check').maybeSingle();
+		const v = data?.value as { ok?: boolean; at?: string; error?: string; checked?: number; found?: number } | null | undefined;
+		// Informational only: a failed hourly re-ship check never turns health red
+		out.reshipCheck = !v ? 'not run yet' : v.ok ? `ok (${v.checked ?? 0} checked, ${v.found ?? 0} found at ${v.at})` : `failed: ${v.error} (at ${v.at})`;
+	} catch (e) {
+		out.reshipCheck = `failed: ${e instanceof Error ? e.message : String(e)}`;
+	}
+
 	const ok = !Object.values(out).some((v) => v?.startsWith('error'));
 	return json({ ok, ...out }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
 };

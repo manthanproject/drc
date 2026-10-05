@@ -72,14 +72,38 @@ for (const [stage, n] of Object.entries(staff)) {
 }
 add({ stage: 'lost', courier_status: 'lost', order_no: '3082', order_value: 3977, carrier_name: 'Delhivery', forward_awb: '38539512054802', last_movement_at: iso(19), last_event_at: iso(19) });
 
+// one "Arrived, not scanned" RTO that the hourly check found re-shipped (Phase 3a)
+{ const r = rows.find((x) => x.order_no === '2954'); Object.assign(r, { reship_state: 'pending', reship_order_no: '2954-1', reship_awb: 'TEST000009', reship_created_at: new Date(NOW - 4 * DAY).toISOString(), reship_courier_status: 'delivered' }); }
+
 const settings = [
 	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 },
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
 ];
 const tables = { rtos: rows, claims: [], claim_money: [], settings };
 
-http.createServer((req, res) => {
+let eventId = 100;
+const rpcLog = [];
+http.createServer(async (req, res) => {
 	const u = new URL(req.url, 'http://x');
+	if (u.pathname.startsWith('/rest/v1/rpc/')) {
+		let body = '';
+		for await (const c of req) body += c;
+		const fn = u.pathname.split('/').pop();
+		const args = JSON.parse(body || '{}');
+		rpcLog.push({ fn, args });
+		if (fn === 'rto_action') {
+			const r = rows.find((x) => x.id === args.p_rto);
+			if (!r) { res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ message: 'DRC_NOT_FOUND' })); return; }
+			const from = r.stage;
+			if (args.p_action === 'reship_confirm') Object.assign(r, { stage: 'closed', reship_state: 'confirmed' });
+			if (args.p_action === 'reship_reject') Object.assign(r, { reship_state: 'rejected' });
+			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ event_id: ++eventId, from, to: r.stage }));
+			return;
+		}
+		res.writeHead(404).end('{}');
+		return;
+	}
+	if (u.pathname === '/__rpc_log') { res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(rpcLog)); return; }
 	const t = u.pathname.replace('/rest/v1/', '');
 	let data = tables[t];
 	if (!data) { res.writeHead(404).end('{}'); return; }

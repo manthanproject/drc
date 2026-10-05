@@ -1,0 +1,43 @@
+{
+ "note": "Trimmed real Velocity search reply (5 Oct 2026): only fields pickReship reads; AWBs replaced",
+ "sample": [
+  {
+   "attributes": {
+    "order": {
+     "display_id": "#Dropy-4042",
+     "channel": "shopify"
+    },
+    "created_at": "2026-08-30T18:06:28.907+05:30",
+    "status": "delivered",
+    "tracking_number": "TEST000003",
+    "items": [
+     {
+      "sku": "Dropy-B0829KDY9X"
+     },
+     {
+      "sku": "Dropy-B00JITM6VK"
+     },
+     {
+      "sku": "Dropy-B07X6HCLK2"
+     }
+    ]
+   }
+  },
+  {
+   "attributes": {
+    "order": {
+     "display_id": "#Dropy-4042-1",
+     "channel": "manual_order"
+    },
+    "created_at": "2026-10-01T11:12:10.112+05:30",
+    "status": "in_transit",
+    "tracking_number": "TEST000004",
+    "items": [
+     {
+      "sku": "Dropy-B07X6HCLK2"
+     }
+    ]
+   }
+  }
+ ]
+}

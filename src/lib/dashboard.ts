@@ -26,6 +26,11 @@ export interface Rto {
 	last_movement_at: string | null;
 	last_event_at: string | null;
 	legacy_source: string | null;
+	reship_order_no?: string | null;
+	reship_awb?: string | null;
+	reship_created_at?: string | null;
+	reship_courier_status?: string | null;
+	reship_state?: 'none' | 'pending' | 'confirmed' | 'rejected' | null;
 }
 
 export interface Claim {
@@ -138,7 +143,7 @@ const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated
 
 // ---------- needs action ----------
 
-export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'unknown' | 'claim_window' | 'credit_due';
+export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found';
 
 export interface ActionItem {
 	key: string;
@@ -167,6 +172,7 @@ function windowFields(deadline: number | null, now: number) {
 }
 
 const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Tone => {
+	if (i.kind === 'reship_found') return 'ok';
 	if (i.daysLeft !== null) return i.daysLeft <= 2 ? 'bad' : 'warn';
 	if (i.kind === 'lost' || i.kind === 'unknown') return 'bad';
 	if (i.windowClosed || i.kind === 'no_date') return 'mute';
@@ -182,7 +188,13 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 	for (const r of rtos) {
 		if (r.stage === 'awaiting_receipt') {
 			const t = ms(r.rto_delivered_at);
-			if (t === null) {
+			if (r.reship_state === 'pending' && r.reship_order_no) {
+				// Probably received and re-shipped: one tap to confirm instead of an MDND claim
+				push({ key: `rs-${r.id}`, kind: 'reship_found', rto: r, title: `${orderLabel(r)} re-shipped as #${r.reship_order_no}`,
+					detail: `Re-ship created ${dateShort(r.reship_created_at)}, after it came back. Received it?`,
+					amount: num(r.order_value), ageDays: t === null ? null : daysSince(t, now),
+					...windowFields(t === null ? null : t + rules.windowDays * DAY, now) });
+			} else if (t === null) {
 				push({ key: `nd-${r.id}`, kind: 'no_date', rto: r, title: `${orderLabel(r)} not received`,
 					detail: `${carrierOf(r)} says RTO delivered, never scanned in`, amount: num(r.order_value),
 					ageDays: null, ...windowFields(null, now) });
