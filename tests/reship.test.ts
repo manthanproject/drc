@@ -49,3 +49,11 @@ test('4042-1 is ignored by the caller (4042 was delivered, never an RTO); SKU ru
 	// If 4042 had been an RTO back on 30 Sep with only the TP-Link SKU, the 4042-1 shipment (other SKU) is not proof
 	assert.equal(pickReship({ order_no: '4042', rto_delivered_at: '2026-09-30T00:00:00+05:30', skus: ['Dropy-B0829KDY9X'] }, s4042), null);
 });
+
+test('cancelled or rejected re-ship is not proof (1990-1, 1543-1)', () => {
+	const row = (status: string) => ({ attributes: { order: { display_id: '#Dropy-1990-1' }, created_at: '2026-08-31T17:44:00+05:30', status, tracking_number: 'T', items: [{ sku: 'S1' }] } });
+	const rto = { order_no: '1990', rto_delivered_at: '2026-08-30T10:00:00+05:30', skus: ['S1'] };
+	assert.equal(pickReship(rto, [row('cancelled')]), null);
+	assert.equal(pickReship(rto, [row('rejected')]), null);
+	assert.equal(pickReship(rto, [row('not_picked')])?.reship_order_no, '1990-1'); // booked + packed counts
+});

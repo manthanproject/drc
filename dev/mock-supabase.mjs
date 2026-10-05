@@ -80,7 +80,39 @@ const settings = [
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
 ];
 const rtoItems = rows.map((r) => ({ rto_id: r.id, sku: `SKU-${r.order_no}` }));
-const tables = { rtos: rows, claims: [], claim_money: [], settings, rto_items: rtoItems };
+for (const r of rows) Object.assign(r, { callback_attempts: 0, refund_state: r.refund_state ?? 'na', scanned_at: null, reship_state: r.reship_state ?? 'none' });
+settings.push({ key: 'max_call_attempts', value: 3 });
+const events = [];
+const tables = { rtos: rows, claims: [], claim_money: [], settings, rto_items: rtoItems, events };
+const STAGE_OF = { received_call: 'to_call', ready_stock: 'ready_stock', reship: 'reship', hold: 'hold', close: 'closed', reship_confirm: 'closed' };
+function mockAction({ p_rto, p_action, p_args = {} }) {
+	const r = rows.find((x) => x.id === p_rto);
+	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (p_action === 'ready_stock' && ['prepaid', 'partial'].includes(r.payment_mode) && !['refund', 'credit'].includes(p_args.money)) return [400, { message: 'DRC_MONEY_CHOICE_REQUIRED' }];
+	if (p_action === 'reship' && !p_args.reship_date) return [400, { message: 'DRC_RESHIP_DATE_REQUIRED' }];
+	const before = { stage: r.stage, scanned_at: r.scanned_at, refund_state: r.refund_state, callback_attempts: r.callback_attempts, reship_state: r.reship_state };
+	let to = STAGE_OF[p_action];
+	if (p_action === 'call_no_answer') { r.callback_attempts++; to = r.callback_attempts >= 3 ? 'hold' : 'to_call'; }
+	if (p_action === 'reship_reject') { to = r.stage; r.reship_state = 'rejected'; }
+	if (p_action === 'reship_confirm') r.reship_state = 'confirmed';
+	if (p_action === 'ready_stock') r.refund_state = p_args.money === 'refund' ? 'due' : p_args.money === 'credit' ? 'credit_due' : 'na';
+	if (p_action === 'reship') r.reship_date = p_args.reship_date;
+	if (p_args.scanned && !r.scanned_at) r.scanned_at = new Date().toISOString();
+	const from = r.stage; r.stage = to;
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: p_action, from, to, before, args: p_args } });
+	return [200, { event_id: id, from, to }];
+}
+function mockUndo({ p_event }) {
+	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
+	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (e.payload.undone) return [400, { message: 'DRC_ALREADY_UNDONE' }];
+	const r = rows.find((x) => x.id === e.rto_id);
+	Object.assign(r, e.payload.before);
+	e.payload.undone = true;
+	events.unshift({ id: ++eventId, source: 'user', rto_id: r.id, kind: 'undo', received_at: new Date().toISOString(), payload: { undid: e.id, restored_stage: r.stage } });
+	return [200, { rto_id: r.id, stage: r.stage }];
+}
 
 // Fake Velocity /shipments search for the re-ship check (VELOCITY_API_URL=http://127.0.0.1:54321/velocity)
 // MOCK_VEL_DELAY_MS = answer time per search; order MOCK_VEL_HANG never answers.
@@ -92,19 +124,25 @@ let eventId = 100;
 const rpcLog = [];
 http.createServer(async (req, res) => {
 	const u = new URL(req.url, 'http://x');
+	const tname = u.pathname.replace('/rest/v1/', '');
+	if (req.method === 'POST' && !u.pathname.startsWith('/rest/v1/rpc/') && tables[tname] && tname !== 'settings') {
+		let body = '';
+		for await (const c of req) body += c;
+		const recs = [].concat(JSON.parse(body || '[]')).map((x) => ({ id: x.id ?? `00000000-0000-0000-0000-${String(900000 + ++eventId).padStart(12, '0')}`, received_at: new Date().toISOString(), ...x }));
+		if (tname === 'events') tables.events.unshift(...recs); else tables[tname].push(...recs);
+		const one = (req.headers.accept ?? '').includes('vnd.pgrst.object');
+		res.writeHead(201, { 'content-type': 'application/json' }).end(JSON.stringify(one ? recs[0] : recs));
+		return;
+	}
 	if (u.pathname.startsWith('/rest/v1/rpc/')) {
 		let body = '';
 		for await (const c of req) body += c;
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (fn === 'rto_action') {
-			const r = rows.find((x) => x.id === args.p_rto);
-			if (!r) { res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ message: 'DRC_NOT_FOUND' })); return; }
-			const from = r.stage;
-			if (args.p_action === 'reship_confirm') Object.assign(r, { stage: 'closed', reship_state: 'confirmed' });
-			if (args.p_action === 'reship_reject') Object.assign(r, { reship_state: 'rejected' });
-			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ event_id: ++eventId, from, to: r.stage }));
+		if (fn === 'rto_action' || fn === 'undo_rto_action') {
+			const [st, out] = fn === 'rto_action' ? mockAction(args) : mockUndo(args);
+			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}
 		if (fn === 'record_reship_checks') {
@@ -139,10 +177,16 @@ http.createServer(async (req, res) => {
 		if (v.startsWith('eq.')) data = data.filter((r) => String(r[k]) === v.slice(3));
 		else if (v.startsWith('in.(')) { const vs = v.slice(4, -1).split(','); data = data.filter((r) => vs.includes(String(r[k] ?? 'none'))); }
 		else if (v === 'not.is.null') data = data.filter((r) => r[k] != null);
+		else if (v.startsWith('gte.')) data = data.filter((r) => r[k] != null && String(r[k]) >= v.slice(4));
 	}
 	const off = Number(u.searchParams.get('offset') ?? 0), lim = Number(u.searchParams.get('limit') ?? 1e9);
 	const range = req.headers.range?.match(/(\d+)-(\d+)/);
 	data = range ? data.slice(+range[1], +range[2] + 1) : data.slice(off, off + lim);
+	if ((req.headers.accept ?? '').includes('vnd.pgrst.object')) {
+		if (data.length !== 1) { res.writeHead(406, { 'content-type': 'application/json' }).end(JSON.stringify({ code: 'PGRST116', message: 'not one row' })); return; }
+		res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(data[0]));
+		return;
+	}
 	res.writeHead(200, { 'content-type': 'application/json', 'content-range': `0-${data.length}/*` }).end(JSON.stringify(data));
 }).listen(54321, '127.0.0.1', () => {
 	const by = rows.reduce((m, r) => ((m[r.stage] = (m[r.stage] ?? 0) + 1), m), {});

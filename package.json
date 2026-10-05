@@ -10,7 +10,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "node --experimental-strip-types --test tests/dashboard.test.ts tests/reship.test.ts"
+		"test": "node --experimental-strip-types --test tests/dashboard.test.ts tests/reship.test.ts tests/scan.test.ts"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-vercel": "^7.0.0",
@@ -28,6 +28,7 @@
 	"dependencies": {
 		"@googleapis/sheets": "^18.1.0",
 		"@supabase/supabase-js": "^2.117.2",
+		"barcode-detector": "^3.2.2",
 		"google-auth-library": "^11.1.0",
 		"googleapis": "^183.0.0"
 	}

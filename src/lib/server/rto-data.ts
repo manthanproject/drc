@@ -8,7 +8,7 @@ const RTO_COLS =
 
 const PAGE = 1000; // PostgREST max rows per request
 
-async function allRtos(): Promise<Rto[]> {
+export async function allRtos(): Promise<Rto[]> {
 	const out: Rto[] = [];
 	for (let from = 0; ; from += PAGE) {
 		const { data, error } = await db().from('rtos').select(RTO_COLS).order('id').range(from, from + PAGE - 1);
@@ -20,7 +20,7 @@ async function allRtos(): Promise<Rto[]> {
 
 async function allClaims(): Promise<Claim[]> {
 	const [c, m] = await Promise.all([
-		db().from('claims').select('id, rto_id, reason, status, deadline_at, approved_at'),
+		db().from('claims').select('id, rto_id, reason, status, deadline_at, approved_at, raised_at'),
 		db().from('claim_money').select('claim_id, outstanding')
 	]);
 	if (c.error) throw new Error(`claims: ${c.error.message}`);

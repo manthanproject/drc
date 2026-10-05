@@ -40,6 +40,7 @@ export interface Claim {
 	status: string;
 	deadline_at: string | null;
 	approved_at: string | null;
+	raised_at?: string | null;
 	outstanding: number | string | null; // from view claim_money
 }
 
@@ -139,6 +140,19 @@ export function bucketOf(r: Rto, now: number, rules: Rules): BucketKey {
 	}
 }
 
+/** Bucket for a bare stage name (no dates needed): in_flight → coming, etc. */
+export function bucketOfStage(stage: string): BucketKey {
+	switch (stage) {
+		case 'in_flight': return 'coming';
+		case 'delayed': return 'delayed';
+		case 'awaiting_receipt': return 'awaiting';
+		case 'scanned': return 'inspect';
+		case 'to_call': return 'call';
+		case 'claim': return 'claims';
+		default: return stage as BucketKey;
+	}
+}
+
 const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated']);
 
 // ---------- needs action ----------
@@ -156,6 +170,7 @@ export interface ActionItem {
 	deadline: number | null; // end of the dispute window (ms)
 	daysLeft: number | null; // whole days left, only while the window is open
 	windowClosed: boolean;
+	ageNote?: string; // replaces the age line (claims: "Raised 4 Oct")
 	tone: Tone;
 	href: string | null;
 	nonDropy: boolean;
@@ -222,11 +237,12 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 		if (c.status === 'approved' && owed > 0) {
 			const t = ms(c.approved_at);
 			push({ key: `cn-${c.id}`, kind: 'credit_due', rto: r, title: `${label} credit note`,
-				detail: 'Approved, money not received', amount: owed,
+				detail: 'Approved, money not received', amount: owed, ageNote: t === null ? undefined : `Approved ${dateShort(c.approved_at)}`,
 				ageDays: t === null ? null : daysSince(t, now), ...windowFields(null, now) });
 		} else if (['draft', 'raised', 'waiting', 'escalated'].includes(c.status) && c.deadline_at) {
 			push({ key: `cw-${c.id}`, kind: 'claim_window', rto: r, title: `${label} claim window`,
-				detail: `Deadline ${dateShort(c.deadline_at)}`, amount: owed, ageDays: null,
+				detail: `Follow up by ${dateShort(c.deadline_at)}`, amount: owed, ageDays: null,
+				ageNote: c.raised_at ? `Raised ${dateShort(c.raised_at)}` : 'Not raised yet',
 				...windowFields(ms(c.deadline_at), now) });
 		}
 	}
@@ -245,7 +261,7 @@ export function sortAction(items: ActionItem[]): ActionItem[] {
 export const windowText = (i: ActionItem): string | null =>
 	i.daysLeft !== null ? (i.daysLeft === 0 ? 'Last day' : `${i.daysLeft} d left`) : i.windowClosed ? 'Window closed' : null;
 
-export const ageText = (i: ActionItem): string => (i.ageDays === null ? 'no tracking date' : agoDays(i.ageDays));
+export const ageText = (i: ActionItem): string => i.ageNote ?? (i.ageDays === null ? 'no tracking date' : agoDays(i.ageDays));
 
 // ---------- dashboard ----------
 

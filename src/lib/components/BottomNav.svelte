@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { active }: { active: 'home' | 'all' } = $props();
+	let { active }: { active: 'home' | 'all' | 'scan' } = $props();
 	let toast = $state('');
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	function soon(what: string, phase: string) {
@@ -12,9 +12,9 @@
 {#if toast}<div class="toast" role="status">{toast}</div>{/if}
 <nav class="nav" aria-label="Main">
 	<a href="/" class:on={active === 'home'} aria-current={active === 'home' ? 'page' : undefined}><i>⌂</i>Home</a>
-	<button type="button" class="off" onclick={() => soon('Ready Stock', 'Phase 3')}><i>▤</i>Ready Stock</button>
-	<button type="button" class="fab off" aria-label="Scan (Phase 3)" onclick={() => soon('Scan', 'Phase 3')}><i>⌗</i></button>
-	<button type="button" class="off" onclick={() => soon('Claims', 'Phase 5')}><i>⚑</i>Claims</button>
+	<button type="button" class="off" onclick={() => soon('Ready Stock tab', 'the next update')}><i>▤</i>Ready Stock</button>
+	<a href="/scan" class="fab" class:fabon={active === 'scan'} aria-label="Scan a return" aria-current={active === 'scan' ? 'page' : undefined}><i>⌗</i></a>
+	<button type="button" class="off" onclick={() => soon('Claims', 'a later update')}><i>⚑</i>Claims</button>
 	<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}><i>☰</i>All RTOs</a>
 </nav>
 
@@ -35,6 +35,7 @@
 		display: grid; place-items: center; margin-top: -26px; box-shadow: 0 10px 22px -10px var(--acc);
 	}
 	.nav .fab i { font-size: 22px; margin: 0; }
+	.nav .fab.fabon { outline: 3px solid var(--acc-soft); }
 	.toast {
 		position: fixed; left: 50%; transform: translateX(-50%); z-index: 11;
 		bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 14px);

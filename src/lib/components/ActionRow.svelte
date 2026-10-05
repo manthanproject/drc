@@ -50,12 +50,12 @@
 		<div class="acts">
 			<button class="yes" disabled={busy} onclick={() => decide('reship_confirm')}>Confirm received</button>
 			<button class="no" disabled={busy} onclick={() => decide('reship_reject')}>No, sent new stock</button>
-			{#if item.href}<a class="trk" href={item.href} target="_blank" rel="noopener noreferrer">Track</a>{/if}
+			{#if item.rto}<a class="trk" href="/rto/{item.rto.id}">Open</a>{/if}
 		</div>
 		{#if err}<div class="err" role="alert">{err}</div>{/if}
 	</div>
-{:else if item.href}
-	<a class="row" href={item.href} target="_blank" rel="noopener noreferrer">{@render body()}</a>
+{:else if item.rto}
+	<a class="row" href="/rto/{item.rto.id}">{@render body()}</a>
 {:else}
 	<div class="row">{@render body()}</div>
 {/if}

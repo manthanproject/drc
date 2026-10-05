@@ -64,11 +64,7 @@
 							<span class="pill p-{BUCKETS[r.bucket].tone}">{BUCKETS[r.bucket].label}</span>
 						</div>
 					{/snippet}
-					{#if r.href}
-						<a class="row card" href={r.href} target="_blank" rel="noopener noreferrer">{@render body()}</a>
-					{:else}
-						<div class="row card flat">{@render body()}</div>
-					{/if}
+					<a class="row card" class:flat={r.sheetOnly} href="/rto/{r.rto.id}">{@render body()}</a>
 				{/each}
 			</div>
 		{:else}

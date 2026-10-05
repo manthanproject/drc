@@ -4,6 +4,7 @@
 //   2. Velocity has a shipment numbered <RTO order>-<N> (one level deeper: 3544 → 3544-1, 1642-1 → 1642-1-1)
 //   3. that shipment was created AFTER the RTO came back (order_date is copied on re-ships, so never used)
 //   4. it shares at least one SKU with the RTO
+//   5. it was not cancelled or rejected (a re-ship that never left proves nothing; 1990-1, 1543-1 on 5 Oct)
 // The match is only a SUGGESTION: staff confirm with one tap.
 
 export interface ReshipRto {
@@ -26,6 +27,8 @@ export function orderNoOf(display: unknown): string {
 	return (m ? m[1] : s).trim();
 }
 
+const NEVER_LEFT = new Set(['cancelled', 'rejected']);
+
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** What to type in Velocity's search box: the base number, which also finds every re-ship. */
@@ -43,6 +46,7 @@ export function pickReship(rto: ReshipRto, shipments: any[]): ReshipMatch | null
 		const a = row?.attributes ?? {};
 		const no = orderNoOf(a.order?.display_id);
 		if (!child.test(no)) continue;
+		if (NEVER_LEFT.has(String(a.status ?? '').toLowerCase())) continue;
 		const created = Date.parse(a.created_at);
 		if (!Number.isFinite(created) || created <= back) continue;
 		const shared = (Array.isArray(a.items) ? a.items : []).some(
