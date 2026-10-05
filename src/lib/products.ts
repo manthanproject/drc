@@ -62,3 +62,12 @@ export function addressLines(a: { full_address?: string | null; city?: string | 
 	if (last) lines.push(last);
 	return lines;
 }
+
+/** 'Dropy-B0CWJSFYWT' → 'B0CWJSFYWT'. Null when what's left isn't a 10-character ASIN. */
+export function asinOf(sku: string | null | undefined): string | null {
+	const a = String(sku ?? '').trim().replace(/^dropy-/i, '').toUpperCase();
+	return /^[A-Z0-9]{10}$/.test(a) ? a : null;
+}
+
+/** Amazon US product page for an ASIN (where Dropy sources the product). */
+export const amazonUrl = (asin: string) => `https://www.amazon.com/dp/${encodeURIComponent(asin)}`;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { searchUrl, type ProductLink } from '#lib/products.ts';
+	import { searchUrl, asinOf, amazonUrl, type ProductLink } from '#lib/products.ts';
 
 	type Item = { id: string; sku: string | null; title: string; qty: number; is_gift: boolean; ready_stock_state?: string };
 	let { items, rtoId }: { items: Item[]; rtoId: string } = $props();
@@ -18,6 +18,7 @@
 <ul class="items">
 	{#each items as it (it.id)}
 		{@const l = it.sku ? links?.[it.sku] : undefined}
+		{@const asin = asinOf(it.sku)}
 		<li>
 			{#if l?.image}<img src={l.image} alt="" width="44" height="44" loading="lazy" />{:else}<span class="ph" aria-hidden="true"></span>{/if}
 			<span class="body">
@@ -27,7 +28,9 @@
 					<span class="t">{it.title || 'Item'}</span>
 				{/if}
 				<span class="meta">
-					{#if it.sku}<span class="mono">{it.sku}</span>{:else}<span>no SKU</span>{/if}
+					{#if asin}<a class="asin mono" href={amazonUrl(asin)} target="_blank" rel="noopener noreferrer" title="Open on Amazon.com">{asin}</a>
+					{:else if it.sku}<span class="mono">{it.sku}</span>
+					{:else}<span>no SKU</span>{/if}
 					{#if it.qty > 1}<span>× {it.qty}</span>{/if}
 					{#if it.is_gift}<span class="pill p-acc">free gift</span>{/if}
 					{#if it.ready_stock_state === 'in_stock'}<span class="pill p-ok">in Ready Stock</span>{/if}
@@ -49,4 +52,5 @@
 	a { color: var(--acc); text-decoration: underline; text-underline-offset: 2px; }
 	.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
 	.ok { color: var(--ok); font-weight: 600; }
+	.meta .asin { font-size: 12px; font-weight: 600; color: var(--ink); text-decoration-color: var(--muted); }
 </style>

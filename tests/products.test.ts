@@ -38,3 +38,13 @@ test('address lines: city/state/PIN only added when not already in the line', ()
 	assert.deepEqual(addressLines({ full_address: 'Flat 2, MG Road', city: 'Gulbarga', state: 'Karnataka', zip: '585102' }), ['Flat 2, MG Road', 'Gulbarga, Karnataka 585102']);
 	assert.deepEqual(addressLines(null), []);
 });
+
+test('ASIN shown without the Dropy- prefix and linked to Amazon.com', async () => {
+	const { asinOf, amazonUrl } = await import('../src/lib/products.ts');
+	assert.equal(asinOf('Dropy-B0CWJSFYWT'), 'B0CWJSFYWT');
+	assert.equal(asinOf('dropy-b0cwjsfywt'), 'B0CWJSFYWT');
+	assert.equal(asinOf('B000UJPHL8'), 'B000UJPHL8');
+	assert.equal(asinOf('SKU-3048'), null); // not an ASIN → shown as-is, no link
+	assert.equal(asinOf(null), null);
+	assert.equal(amazonUrl('B0CWJSFYWT'), 'https://www.amazon.com/dp/B0CWJSFYWT');
+});
