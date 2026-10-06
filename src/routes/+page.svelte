@@ -107,7 +107,7 @@
 				{:else}
 					<p class="muted small">Nothing scanned yet today.</p>
 				{/each}
-				<a class="openscan" href="/scan">Open Scan →</a>
+				<div class="scanlinks"><a class="openscan" href="/scan">Open Scan →</a><a class="openscan" href="/scan/log">Scan log →</a></div>
 			</div>
 			{#if d.parked.length}
 				<div class="sec">Parked / done</div>
@@ -151,6 +151,7 @@
 	.todayhead { display: flex; justify-content: space-between; margin-bottom: 4px; }
 	.todayrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); }
 	.openscan { display: block; margin-top: 8px; font-size: 13.5px; font-weight: 700; color: var(--acc); }
+	.scanlinks { display: flex; justify-content: space-between; }
 
 	/* PC: stage boxes in one row on top, Needs action table left, Scanned today + Parked right */
 	@media (min-width: 1024px) {

@@ -135,7 +135,7 @@
 		{#if findErr}<p class="err" role="alert">{findErr}</p>{/if}
 
 		<div class="card today-card">
-			<div class="todayhead"><b>Scanned today</b><span class="muted small">{data.today.length}</span></div>
+			<div class="todayhead"><b>Scanned today <span class="muted small">{data.today.length}</span></b><a class="pastlink" href="/scan/log">Past days →</a></div>
 			{#each data.today as t (t.id)}
 				<a class="todayrow" href={rtoHref(t.id, '/scan')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
 			{:else}
@@ -240,7 +240,8 @@
 	.pack { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 	.pack a { color: var(--acc); font-weight: 600; font-size: 13.5px; }
 	.linkbtn { background: none; border: 0; color: var(--acc); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 4px; }
-	.todayhead { display: flex; justify-content: space-between; margin-bottom: 4px; }
+	.todayhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+	.pastlink { font-size: 13px; font-weight: 700; color: var(--acc); }
 	.todayrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
 	.idle { color: var(--muted); text-align: center; padding: 40px 20px; border-style: dashed; }
 

@@ -188,6 +188,7 @@ http.createServer(async (req, res) => {
 		else if (v.startsWith('in.(')) { const vs = v.slice(4, -1).split(','); data = data.filter((r) => vs.includes(String(r[k] ?? 'none'))); }
 		else if (v === 'not.is.null') data = data.filter((r) => r[k] != null);
 		else if (v.startsWith('gte.')) data = data.filter((r) => r[k] != null && String(r[k]) >= v.slice(4));
+		else if (v.startsWith('lt.')) data = data.filter((r) => r[k] != null && String(r[k]) < v.slice(3));
 	}
 	const off = Number(u.searchParams.get('offset') ?? 0), lim = Number(u.searchParams.get('limit') ?? 1e9);
 	const range = req.headers.range?.match(/(\d+)-(\d+)/);
