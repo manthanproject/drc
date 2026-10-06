@@ -27,11 +27,58 @@ export interface Rto {
 	last_event_at: string | null;
 	legacy_source: string | null;
 	amount_collected?: number | string | null;
+	disputes?: VelDispute[] | null; // Velocity shipment_disputes (from the 15-min sync)
 	reship_order_no?: string | null;
 	reship_awb?: string | null;
 	reship_created_at?: string | null;
 	reship_courier_status?: string | null;
 	reship_state?: 'none' | 'pending' | 'confirmed' | 'rejected' | null;
+}
+
+/** One Velocity dispute as the API returns it (seen 6 Oct: status 'raised' = "In Review" in the panel). */
+export interface VelDispute {
+	id: string;
+	status: string | null;
+	dispute_type: string | null;
+	raised_at: string | null;
+	reason?: string | null;
+	images?: unknown[] | null;
+}
+
+const DISPUTE_STATUS: Record<string, [string, Tone]> = {
+	raised: ['In Review', 'warn'],
+	in_review: ['In Review', 'warn'],
+	approved: ['Approved', 'ok'],
+	accepted: ['Approved', 'ok'],
+	resolved: ['Resolved', 'ok'],
+	rejected: ['Rejected', 'bad'],
+	declined: ['Rejected', 'bad'],
+	closed: ['Closed', 'mute']
+};
+const titleCase = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Velocity status → panel wording + tone. Unknown statuses are shown as-is (title case), never hidden. */
+export function disputeStatus(status: string | null | undefined): { label: string; tone: Tone } {
+	const k = String(status ?? '').toLowerCase();
+	const hit = DISPUTE_STATUS[k];
+	return hit ? { label: hit[0], tone: hit[1] } : { label: k ? titleCase(k) : 'Unknown', tone: 'mute' };
+}
+
+const DISPUTE_TYPE: Record<string, string> = {
+	mdnd: 'MDND (marked delivered, not received)',
+	wrong_product: 'Wrong product received',
+	wrong_product_received: 'Wrong product received',
+	damaged: 'Damaged product received',
+	damaged_product_received: 'Damaged product received',
+	missing_items: 'Missing items in package',
+	cod_fraud: 'COD fraud / payment not received'
+};
+export const disputeType = (t: string | null | undefined) => DISPUTE_TYPE[String(t ?? '').toLowerCase()] ?? (t ? titleCase(String(t)) : 'Dispute');
+
+/** Newest Velocity dispute of an RTO, if any. */
+export function latestDispute(r: Pick<Rto, 'disputes'> | null | undefined): VelDispute | null {
+	const list = Array.isArray(r?.disputes) ? r!.disputes! : [];
+	return [...list].sort((a, b) => String(b.raised_at ?? '').localeCompare(String(a.raised_at ?? '')))[0] ?? null;
 }
 
 export interface Claim {
@@ -242,7 +289,7 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 				ageDays: t === null ? null : daysSince(t, now), ...windowFields(null, now) });
 		} else if (['draft', 'raised', 'waiting', 'escalated'].includes(c.status) && c.deadline_at) {
 			push({ key: `cw-${c.id}`, kind: 'claim_window', rto: r, title: `${label} claim window`,
-				detail: `Follow up by ${dateShort(c.deadline_at)}`, amount: owed, ageDays: null,
+				detail: `${(() => { const d = latestDispute(r); return d ? `Velocity: ${disputeStatus(d.status).label} · ` : ''; })()}Follow up by ${dateShort(c.deadline_at)}`, amount: owed, ageDays: null,
 				ageNote: c.raised_at ? `Raised ${dateShort(c.raised_at)}` : 'Not raised yet',
 				...windowFields(ms(c.deadline_at), now) });
 		}

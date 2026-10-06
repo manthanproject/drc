@@ -165,3 +165,18 @@ test('All RTOs: counts per view and oldest-first sort', async () => {
 	assert.deepEqual(sortRows(rows, 'value').map((r) => r.rto), [b, c, a]);
 	assert.deepEqual(sortRows(rows, 'old').map((r) => r.rto), [a, b, c]);
 });
+
+test('Velocity dispute status (real 6 Oct data: status "raised" = panel "In Review")', async () => {
+	const { disputeStatus, disputeType, latestDispute } = await import('../src/lib/dashboard.ts');
+	assert.deepEqual(disputeStatus('raised'), { label: 'In Review', tone: 'warn' });
+	assert.deepEqual(disputeStatus('approved'), { label: 'Approved', tone: 'ok' });
+	assert.deepEqual(disputeStatus('pending_courier_reply'), { label: 'Pending Courier Reply', tone: 'mute' }); // unknown → shown as-is
+	assert.equal(disputeType('mdnd'), 'MDND (marked delivered, not received)');
+	const r = rto({ stage: 'claim', disputes: [
+		{ id: 'a', status: 'rejected', dispute_type: 'mdnd', raised_at: '2026-10-01T10:00:00+05:30' },
+		{ id: 'b', status: 'raised', dispute_type: 'mdnd', raised_at: '2026-10-04T19:54:09.731+05:30' }
+	] });
+	assert.equal(latestDispute(r)?.id, 'b');
+	const [i] = needsAction([r], [{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: '2026-10-04T14:24:00Z', outstanding: 100 }], R, NOW);
+	assert.equal(i.detail, 'Velocity: In Review · Follow up by 6 Oct');
+});

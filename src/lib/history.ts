@@ -1,5 +1,5 @@
 // Human wording for the events log (RTO detail → History). Pure, tested.
-import { BUCKETS, bucketOfStage, dateShort } from './dashboard.ts';
+import { BUCKETS, bucketOfStage, dateShort, disputeStatus, disputeType } from './dashboard.ts';
 
 export interface EventRow {
 	id: number;
@@ -51,6 +51,11 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			return { text: `Re-ship #${p.reship_order_no} found (${courierWord(p.reship_courier_status)})`, who, muted: false };
 		case 'reship_withdrawn':
 			return { text: `Re-ship #${p.reship_order_no} no longer counts (cancelled or changed)`, who, muted: false };
+		case 'dispute_update': {
+			const to = disputeStatus(p.to).label;
+			const kind = String(p.type ?? '').toUpperCase() === 'MDND' ? 'MDND' : disputeType(p.type);
+			return { text: p.from ? `Velocity dispute (${kind}): ${disputeStatus(p.from).label} → ${to}` : `Velocity dispute (${kind}) seen: ${to}`, who: 'Velocity', muted: false };
+		}
 		case 'test_reset':
 			return { text: `Test scans cleared, back to ${stageName(p.restored_stage)}`, who: 'Staff (SQL)', muted: true };
 		case 'unknown_parcel':

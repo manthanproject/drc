@@ -75,6 +75,12 @@ add({ stage: 'lost', courier_status: 'lost', order_no: '3082', order_value: 3977
 // one "Arrived, not scanned" RTO that the hourly check found re-shipped (Phase 3a)
 { const r = rows.find((x) => x.order_no === '2954'); Object.assign(r, { reship_state: 'pending', reship_order_no: '2954-1', reship_awb: 'TEST000009', reship_created_at: new Date(NOW - 4 * DAY).toISOString(), reship_courier_status: 'delivered' }); }
 
+// Velocity disputes as the real API returned them on 6 Oct (status "raised" = panel "In Review")
+for (const [o, at] of [['2731', '2026-10-04T19:55:03.252+05:30'], ['3536', '2026-10-04T19:54:50.852+05:30']]) {
+	const r = rows.find((x) => x.order_no === o);
+	if (r) { r.stage = 'claim'; r.disputes = [{ id: `d-${o}`, images: [], reason: `RTO for order #Dropy-${o} is marked "RTO Delivered" on 29 Sep 2026 21:01 IST, but it has not been received at our warehouse. Please share POD within 48 hours, or treat it as lost and settle the claim.`, status: 'raised', raised_at: at, dispute_type: 'mdnd' }]; }
+}
+
 const settings = [
 	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 },
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
@@ -93,7 +99,9 @@ for (const r of rows) r.amount_collected = r.payment_mode === 'prepaid' ? r.orde
 for (const r of rows) Object.assign(r, { callback_attempts: 0, refund_state: r.refund_state ?? 'na', scanned_at: null, reship_state: r.reship_state ?? 'none' });
 settings.push({ key: 'max_call_attempts', value: 3 });
 const events = [];
-const tables = { rtos: rows, claims: [], claim_money: [], settings, rto_items: rtoItems, events };
+const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `c-${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
+const claimMoney = claims.map((c) => ({ claim_id: c.id, outstanding: rows.find((r) => r.id === c.rto_id).order_value }));
+const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events };
 const STAGE_OF = { received_call: 'to_call', ready_stock: 'ready_stock', reship: 'reship', hold: 'hold', close: 'closed', reship_confirm: 'closed' };
 function mockAction({ p_rto, p_action, p_args = {} }) {
 	const r = rows.find((x) => x.id === p_rto);

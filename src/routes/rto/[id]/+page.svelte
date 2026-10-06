@@ -9,7 +9,8 @@
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
-	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown } from '#lib/dashboard.ts';
+	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
+	import { istTime } from '#lib/scanlog.ts';
 	import { describe } from '#lib/history.ts';
 	import type { PageProps } from './$types';
 
@@ -54,6 +55,8 @@
 		due: ['Refund due', 'p-bad'], done: ['Refunded', 'p-ok'], credit_due: ['Store credit to give', 'p-warn'], credit_done: ['Store credit given', 'p-ok']
 	};
 	const pay = $derived(paymentBreakdown(r));
+	const disputes = $derived([...(Array.isArray(r.disputes) ? r.disputes : [])].sort((a, b) => String(b.raised_at ?? '').localeCompare(String(a.raised_at ?? ''))));
+	const velocityUrl = $derived(`https://dashboard.velocity.in/shipping/orders?order_status=all&search=${encodeURIComponent(r.order_no ?? '')}`);
 	const addr = $derived(addressLines(r.ship));
 	const phone = $derived(r.customer_phone10 ? `+91${r.customer_phone10}` : null);
 	const paid = $derived(r.payment_mode === 'partial' ? num(r.amount_collected) : num(r.order_value));
@@ -138,6 +141,20 @@
 
 		<div class="right">
 		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
+		{#if disputes.length}
+			<div class="card o-dispute">
+				<div class="dhead"><b>Velocity dispute{disputes.length > 1 ? 's' : ''}</b><a class="small vlink" href={velocityUrl} target="_blank" rel="noopener noreferrer">Open in Velocity ↗</a></div>
+				{#each disputes as d (d.id)}
+					{@const st = disputeStatus(d.status)}
+					<div class="disp">
+						<div class="drow"><span>{disputeType(d.dispute_type)}</span><span class="pill p-{st.tone}">{st.label}</span></div>
+						{#if d.raised_at}<div class="small muted">Raised {dateShort(d.raised_at)}, {istTime(d.raised_at)}{#if d.images?.length} · {d.images.length} image{d.images.length > 1 ? 's' : ''}{/if}</div>{/if}
+						{#if d.reason}<details><summary class="small">Your remark</summary><p class="small reason">{d.reason}</p></details>{/if}
+					</div>
+				{/each}
+				<p class="small muted upd">Status from Velocity, refreshed every 15 min.</p>
+			</div>
+		{/if}
 		{#if r.reship_state === 'pending'}
 			<div class="card okcard o-reship">
 				<b>Re-shipped as #{r.reship_order_no}?</b>
@@ -187,12 +204,20 @@
 <style>
 	.stack { display: flex; flex-direction: column; gap: 12px; }
 	.crumb { font-size: 13px; color: var(--muted); }
+	.dhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+	.vlink { color: var(--acc); font-weight: 600; }
+	.disp { padding: 10px 0; border-top: 1px solid var(--line); margin-top: 8px; }
+	.drow { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; }
+	.disp details { margin-top: 4px; }
+	.disp summary { cursor: pointer; color: var(--acc); font-weight: 600; }
+	.reason { margin: 6px 0 0; white-space: pre-line; color: var(--muted); }
+	.upd { margin: 4px 0 0; }
 	.hval { margin-left: auto; font-size: 20px; }
 
 	/* Phone: one column in the original order. PC: details + history left, actions right */
 	@media (max-width: 1023.98px) {
 		.left, .right { display: contents; }
-		.o-undo { order: 1; } .o-details { order: 2; } .o-reship { order: 3; } .o-call { order: 4; }
+		.o-undo { order: 1; } .o-details { order: 2; } .o-dispute { order: 3; } .o-reship { order: 3; } .o-call { order: 4; }
 		.o-err { order: 5; } .o-picker { order: 6; } .o-notes { order: 7; } .o-history { order: 8; }
 	}
 	@media (min-width: 1024px) {

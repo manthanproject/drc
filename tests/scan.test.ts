@@ -85,3 +85,9 @@ test('back links: same-site paths only', async () => {
 	assert.equal(safePath('/rto/abc'), null);
 	assert.equal(rtoHref('abc', '/rtos?f=call'), '/rto/abc?from=%2Frtos%3Ff%3Dcall');
 });
+
+test('history: Velocity dispute updates', () => {
+	const e = (payload: any) => say({ id: 1, source: 'velocity', kind: 'dispute_update', payload, received_at: '' }).text;
+	assert.equal(e({ type: 'mdnd', from: null, to: 'raised' }), 'Velocity dispute (MDND) seen: In Review');
+	assert.equal(e({ type: 'mdnd', from: 'raised', to: 'approved' }), 'Velocity dispute (MDND): In Review → Approved');
+});
