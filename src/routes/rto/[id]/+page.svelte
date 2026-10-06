@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { invalidateAll, afterNavigate } from '$app/navigation';
+	import { invalidateAll, afterNavigate, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { rtoReturnedDraft } from '#lib/messages.ts';
-	import { safePath } from '#lib/scan.ts';
+	import { safePath, claimHref, undoFromUrl } from '#lib/scan.ts';
+	import ClaimCard from '#lib/components/ClaimCard.svelte';
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
@@ -61,7 +62,19 @@
 	const phone = $derived(r.customer_phone10 ? `+91${r.customer_phone10}` : null);
 	const paid = $derived(r.payment_mode === 'partial' ? num(r.amount_collected) : num(r.order_value));
 
+	const claims = $derived([...data.claims].sort((a, b) => Number(['closed', 'rejected'].includes(a.status)) - Number(['closed', 'rejected'].includes(b.status))));
+	const openClaim = $derived(data.claims.some((c) => !['closed', 'rejected'].includes(c.status)));
+
 	onMount(() => {
+		// Back from the claim page with ?undo=… → show Undo, then clean the address bar
+		const u = undoFromUrl(page.url);
+		if (u) {
+			undo = u;
+			const clean = new URL(page.url.href);
+			clean.searchParams.delete('undo');
+			clean.searchParams.delete('msg');
+			replaceState(clean, {});
+		}
 		if (r.forward_awb) fetch(`/api/rto/${r.id}/packing`).then((x) => x.json()).then((x) => (packing = x)).catch(() => (packing = { state: 'error' }));
 	});
 
@@ -86,6 +99,10 @@
 
 	async function saved(res: { event_id: number; label: string }) {
 		undo = { text: `Saved as ${res.label}`, eventId: res.event_id };
+		await invalidateAll();
+	}
+	async function raised(eventId: number) {
+		undo = { text: 'Claim marked raised', eventId };
 		await invalidateAll();
 	}
 	async function undoDone() {
@@ -123,6 +140,7 @@
 				{#if packing?.state === 'found'}<a href={packing.url} target="_blank" rel="noopener noreferrer">▶ Packing video</a>
 				{:else if packing?.state === 'purged'}<span class="muted small">Packing video deleted (PC archive)</span>
 				{:else if packing?.state === 'missing'}<span class="muted small">No packing video</span>
+				{:else if packing?.state === 'error'}<span class="muted small">Packing video lookup failed</span>
 				{:else if r.forward_awb}<span class="muted small">Looking for packing video…</span>{/if}
 				{#if trackingUrl(r)}<a href={trackingUrl(r)} target="_blank" rel="noopener noreferrer">Track</a>{/if}
 			</div>
@@ -141,6 +159,9 @@
 
 		<div class="right">
 		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
+		{#each claims as c (c.id)}
+			<div class="o-claim"><ClaimCard claim={c} orderNo={r.order_no} folderId={r.media_folder_id} media={data.media} packingUrl={packing?.state === 'found' ? packing.url : null} onraised={raised} /></div>
+		{/each}
 		{#if disputes.length}
 			<div class="card o-dispute">
 				<div class="dhead"><b>Velocity dispute{disputes.length > 1 ? 's' : ''}</b><a class="small vlink" href={velocityUrl} target="_blank" rel="noopener noreferrer">Open in Velocity ↗</a></div>
@@ -193,7 +214,7 @@
 		{#if err}<p class="err o-err" role="alert">{err}</p>{/if}
 
 		{#if r.stage !== 'unknown_parcel'}
-			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} onsaved={saved} /></div>
+			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
 		{/if}
 
 		</div>
@@ -217,7 +238,7 @@
 	/* Phone: one column in the original order. PC: details + history left, actions right */
 	@media (max-width: 1023.98px) {
 		.left, .right { display: contents; }
-		.o-undo { order: 1; } .o-details { order: 2; } .o-dispute { order: 3; } .o-reship { order: 3; } .o-call { order: 4; }
+		.o-undo { order: 1; } .o-details { order: 2; } .o-claim { order: 3; } .o-dispute { order: 3; } .o-reship { order: 3; } .o-call { order: 4; }
 		.o-err { order: 5; } .o-picker { order: 6; } .o-notes { order: 7; } .o-history { order: 8; }
 	}
 	@media (min-width: 1024px) {

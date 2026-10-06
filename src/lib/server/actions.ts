@@ -5,7 +5,7 @@ import { db } from './supabase.ts';
 export const ACTIONS = ['received_call', 'ready_stock', 'reship', 'hold', 'close', 'call_no_answer', 'reship_confirm', 'reship_reject'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Plain-English messages for the DRC_* errors raised in SQL. */
 const MESSAGES: Record<string, [number, string]> = {
@@ -17,10 +17,19 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_UNKNOWN_ACTION: [400, 'Unknown action'],
 	DRC_ALREADY_UNDONE: [409, 'Already undone'],
 	DRC_UNDO_EXPIRED: [409, 'Too late to undo (10 minutes)'],
-	DRC_NOT_LATEST: [409, 'A newer change exists; undo that first']
+	DRC_NOT_LATEST: [409, 'A newer change exists; undo that first'],
+	DRC_NO_COURIER: [400, 'Old-sheet RTO with no courier/AWB: a claim is not possible here'],
+	DRC_BAD_REASON: [400, 'Pick a reason'],
+	DRC_CLAIM_EXISTS: [409, 'This RTO already has an open claim'],
+	DRC_ITEMS_REQUIRED: [400, 'Tick the item(s) with the problem'],
+	DRC_BAD_ITEMS: [400, 'Those items do not belong to this RTO'],
+	DRC_MEDIA_REQUIRED: [400, 'Unboxing video, front, back and label photos are all needed'],
+	DRC_BAD_MEDIA: [400, 'Unknown media type'],
+	DRC_CLAIM_NOT_DRAFT: [409, 'The claim is already raised, so it cannot be undone here'],
+	DRC_TEXT_REQUIRED: [400, 'Remarks are empty']
 };
 
-function fail(message: string): never {
+export function fail(message: string): never {
 	const code = Object.keys(MESSAGES).find((k) => message.includes(k));
 	const [status, text] = code ? MESSAGES[code] : [500, 'Database error'];
 	if (!code) console.error('rto action failed:', message);

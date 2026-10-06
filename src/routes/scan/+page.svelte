@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invalidate, pushState } from '$app/navigation';
+	import { invalidate, pushState, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import Scanner from '#lib/components/Scanner.svelte';
@@ -7,7 +7,8 @@
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
-	import { rtoHref } from '#lib/scan.ts';
+	import { rtoHref, claimHref, undoFromUrl } from '#lib/scan.ts';
+	import { onMount } from 'svelte';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, paymentBreakdown } from '#lib/dashboard.ts';
 	import type { PageProps } from './$types';
 
@@ -110,7 +111,20 @@
 		}
 	}
 
+	// Back from the claim page with ?undo=… → show Undo here, then clean the address bar
+	onMount(() => {
+		const u = undoFromUrl(page.url);
+		if (!u) return;
+		undo = u;
+		const clean = new URL(page.url.href);
+		clean.searchParams.delete('undo');
+		clean.searchParams.delete('msg');
+		replaceState(clean, {});
+		invalidate('drc:today');
+	});
+
 	const r = $derived(detail?.rto);
+	const openClaim = $derived(detail?.claims?.some((c: { status: string }) => !['closed', 'rejected'].includes(c.status)));
 	const bucket = $derived(r ? BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)] : null);
 	const already = $derived(r && STAFF.has(r.stage));
 	const pay = $derived(r ? paymentBreakdown(r) : { label: '', detail: null });
@@ -200,7 +214,7 @@
 				<div class="card warnline">Already saved as an unknown parcel{r.scanned_at ? ` on ${dateShort(r.scanned_at)}` : ''}. Matching it to an order comes in a later update.</div>
 			{:else}
 				<div class="card picker-card">
-					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} onsaved={saved} />
+					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} claimHref={!openClaim && r.forward_awb && r.courier ? claimHref(r.id, '/scan', { scanned: true, ret: 'from' }) : null} onsaved={saved} />
 				</div>
 			{/if}
 			<button class="linkbtn" onclick={() => { closeCard(); scanner?.focusInput(); }}>Not this parcel? Scan again</button>

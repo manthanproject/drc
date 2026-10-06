@@ -99,9 +99,18 @@ for (const r of rows) r.amount_collected = r.payment_mode === 'prepaid' ? r.orde
 for (const r of rows) Object.assign(r, { callback_attempts: 0, refund_state: r.refund_state ?? 'na', scanned_at: null, reship_state: r.reship_state ?? 'none' });
 settings.push({ key: 'max_call_attempts', value: 3 });
 const events = [];
-const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `c-${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
+const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `00000000-0000-0000-0000-c0000000000${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', channel: 'support_ticket', ticket_ref: null, claimed_amount: r.order_value, description: null, created_at: r.disputes[0].raised_at, deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
+// Phase 3c: #3379 on Hold (wrong product received), partial COD with Velocity's "Pay on Delivery" dummy line
+{ const r = rows.find((x) => x.stage === 'hold' && x.forward_awb);
+  Object.assign(r, { order_no: '3379', order_value: 3100, payment_mode: 'partial', amount_collected: 806, carrier_name: 'DTDC', forward_awb: '7D139900001', rto_delivered_at: new Date(NOW - 3 * DAY).toISOString(), notes: '[06 Oct] Wrong product received' });
+  for (let k = rtoItems.length - 1; k >= 0; k--) if (rtoItems[k].rto_id === r.id) rtoItems.splice(k, 1);
+  rtoItems.push(
+    { id: '00000000-0000-0000-0000-00000000a001', rto_id: r.id, sku: 'Dropy-B0CWJSFYWT', title: 'Dr. Westin Childs T2 Cream Thyroid Support Lotion, 4 oz', qty: 1, is_gift: false, ready_stock_state: 'na', condition: 'pending' },
+    { id: '00000000-0000-0000-0000-00000000a002', rto_id: r.id, sku: 'Dropy-B0F67B33PQ', title: 'ROUND LAB Birch Juice Icy Cooling Eye Stick', qty: 1, is_gift: false, ready_stock_state: 'na', condition: 'pending' },
+    { id: '00000000-0000-0000-0000-00000000a003', rto_id: r.id, sku: null, title: 'Pay on Delivery', qty: 1, is_gift: false, ready_stock_state: 'na', condition: 'pending' }); }
+const rtoMedia = [];
 const claimMoney = claims.map((c) => ({ claim_id: c.id, outstanding: rows.find((r) => r.id === c.rto_id).order_value }));
-const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events };
+const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia };
 const STAGE_OF = { received_call: 'to_call', ready_stock: 'ready_stock', reship: 'reship', hold: 'hold', close: 'closed', reship_confirm: 'closed' };
 function mockAction({ p_rto, p_action, p_args = {} }) {
 	const r = rows.find((x) => x.id === p_rto);
@@ -121,11 +130,58 @@ function mockAction({ p_rto, p_action, p_args = {} }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: p_action, from, to, before, args: p_args } });
 	return [200, { event_id: id, from, to }];
 }
+const COND = { wrong: ['wrong', 'wrong_product'], damaged: ['damaged', 'damaged'], missing: ['missing', 'missing_items'], leak: ['leak', 'damaged'], empty: ['empty', 'missing_items'], near_expiry: ['near_expiry', 'wrong_product'] };
+function mockClaim({ p_rto, p_args: a }) {
+	const r = rows.find((x) => x.id === p_rto);
+	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (!r.courier) return [400, { message: 'DRC_NO_COURIER' }];
+	if (!COND[a.reason]) return [400, { message: 'DRC_BAD_REASON' }];
+	if (claims.some((c) => c.rto_id === r.id && !['closed', 'rejected'].includes(c.status))) return [400, { message: 'DRC_CLAIM_EXISTS' }];
+	const miss = ['unboxing_video', 'front', 'back', 'label'].filter((k) => !a.media.some((m) => m.kind === k && m.drive_file_id));
+	if (miss.length) return [400, { message: `DRC_MEDIA_REQUIRED ${miss}` }];
+	const before = { stage: r.stage, scanned_at: r.scanned_at, refund_state: r.refund_state, callback_attempts: r.callback_attempts, reship_state: r.reship_state, notes: r.notes, media_state: r.media_state ?? 'none', media_folder_id: r.media_folder_id ?? null };
+	const itemsBefore = rtoItems.filter((i) => a.items.includes(i.id) || a.restock.includes(i.id)).map((i) => ({ id: i.id, condition: i.condition ?? 'pending', ready_stock_state: i.ready_stock_state }));
+	for (const i of rtoItems) {
+		if (a.items.includes(i.id)) i.condition = COND[a.reason][0];
+		if (a.restock.includes(i.id)) Object.assign(i, { condition: 'ok', ready_stock_state: 'in_stock' });
+	}
+	const cid = `00000000-0000-0000-0000-c${String(++eventId).padStart(11, '0')}`;
+	claims.unshift({ id: cid, rto_id: r.id, reason: COND[a.reason][1], status: 'draft', channel: 'panel_dispute', ticket_ref: null, claimed_amount: r.order_value, description: a.description, created_at: new Date().toISOString(), deadline_at: new Date(Date.parse(r.rto_delivered_at ?? new Date().toISOString()) + 7 * DAY).toISOString(), approved_at: null, raised_at: null });
+	claimMoney.push({ claim_id: cid, outstanding: r.order_value });
+	const mids = a.media.map((m) => { const id = `00000000-0000-0000-0000-m${String(++eventId).padStart(11, '0')}`; rtoMedia.push({ id, rto_id: r.id, uploaded_at: new Date().toISOString(), trashed_at: null, ...m }); return id; });
+	const from = r.stage;
+	Object.assign(r, { stage: 'claim', media_state: 'complete', media_folder_id: a.folder_id, scanned_at: a.scanned && !r.scanned_at ? new Date().toISOString() : r.scanned_at });
+	if (a.note) r.notes = [r.notes, `[06 Oct] ${a.note}`].filter(Boolean).join('\n');
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim', from, to: 'claim', before, claim: { op: 'create', id: cid, reason: a.reason, items_before: itemsBefore, media_ids: mids, n_items: a.items.length, n_restock: a.restock.length }, args: { scanned: !!a.scanned, note: a.note || null } } });
+	return [200, { event_id: id, claim_id: cid, from, to: 'claim' }];
+}
+function mockClaimAction({ p_claim, p_action, p_args = {} }) {
+	const c = claims.find((x) => x.id === p_claim);
+	if (!c) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (p_action === 'save_text') { c.description = p_args.description; return [200, { claim_id: c.id, status: c.status }]; }
+	if (c.status !== 'draft') return [400, { message: 'DRC_CLAIM_NOT_DRAFT' }];
+	const claim_before = { status: c.status, raised_at: c.raised_at, ticket_ref: c.ticket_ref, description: c.description };
+	Object.assign(c, { status: 'raised', raised_at: new Date().toISOString(), ticket_ref: p_args.ticket_ref ?? c.ticket_ref, description: p_args.description ?? c.description });
+	const r = rows.find((x) => x.id === c.rto_id);
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim_raised', from: r.stage, to: r.stage, before: { stage: r.stage }, claim: { op: 'raise', id: c.id, claim_before }, args: { ticket_ref: p_args.ticket_ref ?? null } } });
+	return [200, { event_id: id, claim_id: c.id, status: 'raised' }];
+}
 function mockUndo({ p_event }) {
 	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
 	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
 	if (e.payload.undone) return [400, { message: 'DRC_ALREADY_UNDONE' }];
 	const r = rows.find((x) => x.id === e.rto_id);
+	const cl = e.payload.claim;
+	if (cl?.op === 'create') {
+		const c = claims.find((x) => x.id === cl.id);
+		if (c && c.status !== 'draft') return [400, { message: 'DRC_CLAIM_NOT_DRAFT' }];
+		for (let k = rtoMedia.length - 1; k >= 0; k--) if (cl.media_ids.includes(rtoMedia[k].id)) rtoMedia.splice(k, 1);
+		for (const b of cl.items_before) Object.assign(rtoItems.find((i) => i.id === b.id), b);
+		claims.splice(claims.indexOf(c), 1);
+	}
+	if (cl?.op === 'raise') Object.assign(claims.find((x) => x.id === cl.id), cl.claim_before);
 	Object.assign(r, e.payload.before);
 	e.payload.undone = true;
 	events.unshift({ id: ++eventId, source: 'user', rto_id: r.id, kind: 'undo', received_at: new Date().toISOString(), payload: { undid: e.id, restored_stage: r.stage } });
@@ -140,6 +196,7 @@ let velCalls = 0;
 
 let eventId = 100;
 const rpcLog = [];
+const uploads = [];
 http.createServer(async (req, res) => {
 	const u = new URL(req.url, 'http://x');
 	const tname = u.pathname.replace('/rest/v1/', '');
@@ -158,8 +215,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (fn === 'rto_action' || fn === 'undo_rto_action') {
-			const [st, out] = fn === 'rto_action' ? mockAction(args) : mockUndo(args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}
@@ -184,6 +241,18 @@ http.createServer(async (req, res) => {
 		res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data, meta: { total: data.length } }));
 		return;
 	}
+	if (u.pathname.startsWith('/fake-upload/')) {
+		const cors = { 'access-control-allow-origin': req.headers.origin ?? '*', 'access-control-allow-methods': 'PUT, OPTIONS', 'access-control-allow-headers': 'content-type' };
+		if (req.method === 'OPTIONS') { res.writeHead(204, cors).end(); return; }
+		let size = 0;
+		for await (const c of req) size += c.length;
+		await new Promise((r) => setTimeout(r, 600));
+		const id = `fakeUp${u.pathname.split('/').pop().padStart(8, '0')}x`;
+		uploads.push({ id, name: u.searchParams.get('name'), size, type: req.headers['content-type'] });
+		res.writeHead(200, { 'content-type': 'application/json', ...cors }).end(JSON.stringify({ id, name: u.searchParams.get('name'), size: String(size), mimeType: req.headers['content-type'] }));
+		return;
+	}
+	if (u.pathname === '/__uploads') { res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(uploads)); return; }
 	if (u.pathname === '/__vel_calls') { res.writeHead(200).end(String(velCalls)); return; }
 	if (u.pathname === '/__rpc_log') { res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(rpcLog)); return; }
 	const t = u.pathname.replace('/rest/v1/', '');
@@ -195,6 +264,7 @@ http.createServer(async (req, res) => {
 		if (v.startsWith('eq.')) data = data.filter((r) => String(r[k]) === v.slice(3));
 		else if (v.startsWith('in.(')) { const vs = v.slice(4, -1).split(','); data = data.filter((r) => vs.includes(String(r[k] ?? 'none'))); }
 		else if (v === 'not.is.null') data = data.filter((r) => r[k] != null);
+		else if (v === 'is.null') data = data.filter((r) => r[k] == null);
 		else if (v.startsWith('gte.')) data = data.filter((r) => r[k] != null && String(r[k]) >= v.slice(4));
 		else if (v.startsWith('lt.')) data = data.filter((r) => r[k] != null && String(r[k]) < v.slice(3));
 	}

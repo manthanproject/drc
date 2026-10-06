@@ -71,3 +71,33 @@ export function safePath(v: string | null | undefined): string | null {
 
 /** Link to an RTO page that remembers where it was opened from. */
 export const rtoHref = (id: string, from: string) => `/rto/${id}?from=${encodeURIComponent(from)}`;
+
+/** Claim page link. ret 'rto' = come back to the RTO page (which itself goes back to `from`); 'from' = go straight back to `from` (Scan). */
+export function claimHref(id: string, from: string, opts: { scanned?: boolean; ret: 'rto' | 'from' }): string {
+	const p = new URLSearchParams({ from });
+	if (opts.scanned) p.set('scanned', '1');
+	p.set('ret', opts.ret);
+	return `/rto/${id}/claim?${p}`;
+}
+
+/** Where the claim page goes back to (and returns after saving). */
+export function claimReturn(id: string, from: string | null, ret: string | null): string {
+	const safe = safePath(from);
+	if (ret === 'from' && safe) return safe;
+	return safe ? rtoHref(id, safe) : `/rto/${id}`;
+}
+
+/** Adds ?undo=<event>&msg=… so the page we land on shows the Undo bar. */
+export function withUndo(path: string, eventId: number, msg: string): string {
+	const u = new URL(path, 'http://x');
+	u.searchParams.set('undo', String(eventId));
+	u.searchParams.set('msg', msg.slice(0, 120));
+	return u.pathname + u.search;
+}
+
+/** Reads (and validates) ?undo / ?msg. */
+export function undoFromUrl(u: { searchParams: Pick<URLSearchParams, 'get'> }): { eventId: number; text: string } | null {
+	const id = Number(u.searchParams.get('undo'));
+	if (!Number.isSafeInteger(id) || id <= 0) return null;
+	return { eventId: id, text: (u.searchParams.get('msg') ?? 'Saved').slice(0, 120) };
+}

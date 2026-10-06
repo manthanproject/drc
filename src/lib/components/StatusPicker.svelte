@@ -13,8 +13,9 @@
 		rto,
 		scanned = false,
 		title = 'What happened to this parcel?',
+		claimHref,
 		onsaved
-	}: { rto: PickerRto; scanned?: boolean; title?: string; onsaved: (r: Saved) => void } = $props();
+	}: { rto: PickerRto; scanned?: boolean; title?: string; claimHref?: string | null; onsaved: (r: Saved) => void } = $props();
 
 	let open = $state<null | 'received' | 'ready_stock' | 'reship' | 'hold'>(null);
 	let reshipDate = $state(istTomorrow(Date.now()));
@@ -69,9 +70,15 @@
 		<button class="opt" class:sel={open === 'received'} disabled={busy} onclick={() => toggle('received')}>
 			<span class="ic ok">✓</span><span><b>Received OK</b><small>Call or Ready Stock</small></span>
 		</button>
-		<button class="opt" disabled={busy} onclick={() => { open = null; claimInfo = !claimInfo; }}>
-			<span class="ic bad">!</span><span><b>RTO claim</b><small>Reason, items, media</small></span>
-		</button>
+		{#if claimHref}
+			<a class="opt" href={claimHref} aria-disabled={busy}>
+				<span class="ic bad">!</span><span><b>RTO claim</b><small>Reason, items, media</small></span>
+			</a>
+		{:else}
+			<button class="opt" disabled={busy} onclick={() => { open = null; claimInfo = !claimInfo; }}>
+				<span class="ic bad">!</span><span><b>RTO claim</b><small>Reason, items, media</small></span>
+			</button>
+		{/if}
 		<button class="opt" class:sel={open === 'ready_stock'} disabled={busy} onclick={() => { claimInfo = false; err = ''; readyStock(); }}>
 			<span class="ic acc">▤</span><span><b>Ready Stock</b><small>Customer doesn't want</small></span>
 		</button>
@@ -87,7 +94,7 @@
 	</div>
 
 	{#if claimInfo}
-		<div class="panel note">RTO claim (reason, items, unboxing video and photos, ready-made dispute text) arrives in the next update. For now, use Hold with a note.</div>
+		<div class="panel note">This RTO already has an open claim, or has no courier to claim against. See the claim card on the RTO page.</div>
 	{/if}
 
 	{#if open === 'received'}
@@ -134,7 +141,7 @@
 	.picker { display: flex; flex-direction: column; gap: 10px; }
 	.ttl { font-size: 14px; font-weight: 700; }
 	.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 8px; }
-	.opt { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 9px 11px; border-radius: 14px; border: 1px solid var(--line);
+	.opt { color: inherit; display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 9px 11px; border-radius: 14px; border: 1px solid var(--line);
 		background: var(--surface); text-align: left; cursor: pointer; }
 	.opt.sel { border: 2px solid var(--acc); padding: 8px 10px; }
 	.opt:disabled { opacity: 0.6; cursor: wait; }

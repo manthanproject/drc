@@ -1,5 +1,6 @@
 // Human wording for the events log (RTO detail → History). Pure, tested.
 import { BUCKETS, bucketOfStage, dateShort, disputeStatus, disputeType } from './dashboard.ts';
+import { reasonOf } from './claims.ts';
 
 export interface EventRow {
 	id: number;
@@ -31,6 +32,11 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 	switch (e.kind) {
 		case 'stage_change': {
 			let text = ACTION[p.action] ?? `Moved to ${stageName(p.to)}`;
+			if (p.action === 'claim') {
+				const n = Number(p.claim?.n_items ?? 0), k = Number(p.claim?.n_restock ?? 0);
+				text = `RTO claim: ${reasonOf(p.claim?.reason)?.label ?? 'claim'}${n ? ` (${n} item${n > 1 ? 's' : ''})` : ''}, saved as Draft${k ? ` · ${k} item${k > 1 ? 's' : ''} to Ready Stock` : ''}`;
+			}
+			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
 			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;
 			if (p.args?.scanned) text = 'Scanned · ' + text;

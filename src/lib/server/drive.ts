@@ -100,3 +100,20 @@ export async function addShortcut(folderId: string, targetId: string, name: stri
 		})
 	});
 }
+
+/** Anyone with the link can VIEW (needed so Velocity can open the evidence links). Safe to repeat. */
+export async function shareAnyoneReader(fileId: string) {
+	return api<{ id: string }>(`${API}/${encodeURIComponent(fileId)}/permissions?fields=id&sendNotificationEmail=false`, {
+		method: 'POST',
+		body: JSON.stringify({ role: 'reader', type: 'anyone', allowFileDiscovery: false })
+	});
+}
+
+/** Adds the shortcut only if the folder does not already hold one with that name. */
+export async function ensureShortcut(folderId: string, targetId: string, name: string): Promise<{ id: string; created: boolean }> {
+	const query = `name = '${q(name)}' and '${folderId}' in parents and trashed = false`;
+	const found = await api<{ files: { id: string }[] }>(`${API}?q=${encodeURIComponent(query)}&fields=files(id)&pageSize=1`);
+	if (found.files[0]) return { id: found.files[0].id, created: false };
+	const made = await addShortcut(folderId, targetId, name);
+	return { id: made.id, created: true };
+}

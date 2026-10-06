@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findMatches, istDayStart, istTomorrow } from '../src/lib/scan.ts';
+import { findMatches, istDayStart, istTomorrow, claimHref, claimReturn, withUndo, undoFromUrl } from '../src/lib/scan.ts';
 import { describe as say } from '../src/lib/history.ts';
 import { needsAction, ageText, DEFAULT_RULES, type Rto } from '../src/lib/dashboard.ts';
 
@@ -90,4 +90,16 @@ test('history: Velocity dispute updates', () => {
 	const e = (payload: any) => say({ id: 1, source: 'velocity', kind: 'dispute_update', payload, received_at: '' }).text;
 	assert.equal(e({ type: 'mdnd', from: null, to: 'raised' }), 'Velocity dispute (MDND) seen: In Review');
 	assert.equal(e({ type: 'mdnd', from: 'raised', to: 'approved' }), 'Velocity dispute (MDND): In Review → Approved');
+});
+
+test('claim page links: from Scan back to Scan, from RTO page back to that RTO page', () => {
+	assert.equal(claimHref('abc', '/scan', { scanned: true, ret: 'from' }), '/rto/abc/claim?from=%2Fscan&scanned=1&ret=from');
+	assert.equal(claimReturn('abc', '/scan', 'from'), '/scan');
+	assert.equal(claimReturn('abc', '/rtos?f=claims', 'rto'), '/rto/abc?from=%2Frtos%3Ff%3Dclaims');
+	assert.equal(claimReturn('abc', 'https://evil.example', 'from'), '/rto/abc');
+	assert.equal(claimReturn('abc', '//evil', 'rto'), '/rto/abc');
+	const p = withUndo('/rto/abc?from=%2Fscan', 77, '#3379 saved as RTO claim');
+	assert.equal(p, '/rto/abc?from=%2Fscan&undo=77&msg=%233379+saved+as+RTO+claim');
+	assert.deepEqual(undoFromUrl(new URL(p, 'http://x')), { eventId: 77, text: '#3379 saved as RTO claim' });
+	assert.equal(undoFromUrl(new URL('/scan?undo=x', 'http://x')), null);
 });
