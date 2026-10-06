@@ -46,7 +46,7 @@ for (let i = 0; i < 3; i++) { const t = iso(rnd() * 0.5); add({ courier_status: 
 
 // awaiting receipt 58 = ₹1,88,661, by age group (tablet, 4 Oct)
 const aw = (order, value, daysAgo, extra = {}) =>
-	add({ order_no: order ?? undefined, order_value: value, stage: 'awaiting_receipt', courier_status: 'rto_delivered',
+	add({ ...(order ? { order_no: order } : {}), order_value: value, stage: 'awaiting_receipt', courier_status: 'rto_delivered',
 		rto_delivered_at: daysAgo === null ? null : iso(daysAgo), ...(order ? {} : {}), ...extra });
 spread(36899, 12).forEach((v) => aw(null, v, 0.2 + rnd() * 1.7));
 const d37 = ['3536', '4024', '2731', '3544', '3946', '2876', '2951', '2954', '1642-1-1'];

@@ -2,11 +2,14 @@
 	import { invalidateAll } from '$app/navigation';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import ActionRow from '#lib/components/ActionRow.svelte';
+	import ActionTable from '#lib/components/ActionTable.svelte';
+	import { rtoHref } from '#lib/scan.ts';
 	import { inr } from '#lib/dashboard.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const d = $derived(data.d);
+	const top5 = $derived(d.action.slice(0, 5));
 	let refreshing = $state(false);
 	async function refresh() {
 		refreshing = true;
@@ -17,7 +20,7 @@
 </script>
 
 <div class="app">
-	<header class="topbar">
+	<header class="topbar mobile-only">
 		<div class="mark">D</div>
 		<h1>Returns</h1>
 		<button class="sync" class:bad={!data.sync.ok} onclick={refresh} disabled={refreshing} title="Tap to refresh">
@@ -25,24 +28,28 @@
 		</button>
 	</header>
 
-	<main class="content">
-		<section class="card urgent" aria-labelledby="na">
-			<div class="urg-head">
-				<b id="na">Needs action today</b>
-				<span class="pill {data.actionTotal ? 'p-bad' : 'p-ok'}">{data.actionTotal}</span>
-			</div>
-			{#if d.action.length === 0}
-				<p class="muted small" style="margin:0">Nothing late. Every parcel the courier delivered back has been scanned.</p>
-			{:else}
-				<div>
-					{#each d.action as item (item.key)}<ActionRow {item} />{/each}
+	<main class="content home">
+		<div class="act">
+			<section class="card urgent mobile-only" aria-labelledby="na">
+				<div class="urg-head">
+					<b id="na">Needs action today</b>
+					<span class="pill {d.action.length ? 'p-bad' : 'p-ok'}">{d.action.length}</span>
 				</div>
-				{#if data.actionTotal > d.action.length}
-					<a class="more" href="/rtos?f=action">See all {data.actionTotal} →</a>
+				{#if d.action.length === 0}
+					<p class="muted small" style="margin:0">Nothing late. Every parcel the courier delivered back has been scanned.</p>
+				{:else}
+					<div>
+						{#each top5 as item (item.key)}<ActionRow {item} />{/each}
+					</div>
+					{#if d.action.length > top5.length}
+						<a class="more" href="/rtos?f=action">See all {d.action.length} →</a>
+					{/if}
 				{/if}
-			{/if}
-		</section>
+			</section>
+			<div class="desk-only"><ActionTable items={d.action} limit={15} /></div>
+		</div>
 
+		<div class="kpi">
 		<div class="sec">Where every RTO is <span>tap a box to see the list</span></div>
 		<div class="buckets">
 			<a class="bucket wide" href="/rtos?f=coming">
@@ -90,16 +97,28 @@
 				<div class="s">{d.creditDue.n ? `${inr(d.creditDue.value)} approved, not in` : 'Approved, money not in'}</div>
 			</a>
 		</div>
+		</div>
 
-		{#if d.parked.length}
-			<div class="sec">Parked / done</div>
-			<div class="parked">
-				{#each d.parked as p (p.key)}
-					<a href="/rtos?f={p.key}"><b>{p.n}</b> {p.label}</a>
+		<aside class="side">
+			<div class="card desk-only">
+				<div class="todayhead"><b>Scanned today</b><span class="muted small">{data.today.length}</span></div>
+				{#each data.today.slice(0, 8) as t (t.id)}
+					<a class="todayrow" href={rtoHref(t.id, '/')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
+				{:else}
+					<p class="muted small">Nothing scanned yet today.</p>
 				{/each}
+				<a class="openscan" href="/scan">Open Scan →</a>
 			</div>
-		{/if}
-		<p class="small muted total">{d.total} RTOs in DRC</p>
+			{#if d.parked.length}
+				<div class="sec">Parked / done</div>
+				<div class="parked">
+					{#each d.parked as p (p.key)}
+						<a href="/rtos?f={p.key}"><b>{p.n}</b> {p.label}</a>
+					{/each}
+				</div>
+			{/if}
+			<p class="small muted total">{d.total} RTOs in DRC</p>
+		</aside>
 	</main>
 </div>
 <BottomNav active="home" />
@@ -129,4 +148,24 @@
 	.parked a { font-size: 13px; padding: 7px 11px; border-radius: 11px; background: var(--surface); border: 1px solid var(--line); }
 	.parked b { font-variant-numeric: tabular-nums; }
 	.total { text-align: center; margin-top: 18px; }
+	.todayhead { display: flex; justify-content: space-between; margin-bottom: 4px; }
+	.todayrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); }
+	.openscan { display: block; margin-top: 8px; font-size: 13.5px; font-weight: 700; color: var(--acc); }
+
+	/* PC: stage boxes in one row on top, Needs action table left, Scanned today + Parked right */
+	@media (min-width: 1024px) {
+		.home { display: grid; grid-template-columns: minmax(0, 1fr) 320px; grid-template-areas: 'kpi kpi' 'act side'; gap: 18px; align-items: start; }
+		.act { grid-area: act; min-width: 0; }
+		.kpi { grid-area: kpi; }
+		.side { grid-area: side; display: flex; flex-direction: column; }
+		.kpi .sec { margin-top: 0; }
+		.buckets { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+		.wide { grid-column: auto; flex-direction: column; align-items: stretch; gap: 0; min-height: 96px; }
+		.wide .l { margin-top: 6px !important; }
+		.wide .s { margin-top: auto; padding-top: 4px !important; }
+		.side .sec { margin-top: 18px; }
+		.parked { flex-direction: column; gap: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 4px 14px; }
+		.parked a { display: flex; flex-direction: row-reverse; justify-content: space-between; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 9px 0; background: none; font-size: 13.5px; }
+		.parked a:first-child { border-top: 0; }
+	}
 </style>

@@ -25,6 +25,7 @@
 	});
 	const fromParam = $derived(safePath(page.url.searchParams.get('from')));
 	const backHref = $derived(cameFrom ?? fromParam ?? '/rtos');
+	const backLabel = $derived(backHref.startsWith('/scan') ? 'Scan' : backHref === '/' ? 'Home' : 'All RTOs');
 	const navActive = $derived(backHref.startsWith('/scan') ? 'scan' : backHref === '/' ? 'home' : 'all');
 
 	// WhatsApp: a ready-to-send draft to copy (playbook template E), never opens WhatsApp
@@ -93,14 +94,16 @@
 <div class="app">
 	<header class="topbar">
 		<a class="back" href={backHref} aria-label="Back">‹</a>
+		<span class="crumb desk-only">{backLabel} ›</span>
 		<h1>{orderLabel(r)}</h1>
 		<span class="pill p-{bucket.tone}">{bucket.label}</span>
+		<span class="money hval desk-only">{inr(num(r.order_value))}</span>
 	</header>
 
-	<main class="content stack">
-		{#if undo}{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}{/if}
-
-		<div class="card">
+	<main class="content stack cols">
+		<div class="left">
+		<div class="card o-details">
+			<div class="dtop">
 			<dl>
 				<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
 				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
@@ -111,6 +114,7 @@
 				{#if r.reship_date}<dt>Re-ship date</dt><dd>{dateShort(r.reship_date + 'T12:00:00Z')}</dd>{/if}
 			</dl>
 			{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
+			</div>
 			{#if data.items.length}{#key r.id}<ItemList items={data.items} rtoId={r.id} />{/key}{/if}
 			<div class="links">
 				{#if packing?.state === 'found'}<a href={packing.url} target="_blank" rel="noopener noreferrer">▶ Packing video</a>
@@ -120,9 +124,22 @@
 				{#if trackingUrl(r)}<a href={trackingUrl(r)} target="_blank" rel="noopener noreferrer">Track</a>{/if}
 			</div>
 		</div>
+		{#if r.notes}<div class="card o-notes"><b>Notes</b><p class="notes">{r.notes}</p></div>{/if}
+		<div class="card o-history">
+			<b>History</b>
+			{#each data.events as e (e.id)}
+				{@const d = describe(e)}
+				<div class="ev" class:muted={d.muted}><span class="dot"></span><span><span class="et">{d.text}</span><small>{dateShort(e.received_at)} {new Date(e.received_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {d.who}</small></span></div>
+			{:else}
+				<p class="small muted">No history yet.</p>
+			{/each}
+		</div>
+		</div>
 
+		<div class="right">
+		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
 		{#if r.reship_state === 'pending'}
-			<div class="card okcard">
+			<div class="card okcard o-reship">
 				<b>Re-shipped as #{r.reship_order_no}?</b>
 				<p class="small muted">Velocity shows a re-ship created {dateShort(r.reship_created_at)}, after this parcel came back.</p>
 				<div class="two">
@@ -133,7 +150,7 @@
 		{/if}
 
 		{#if phone && (r.stage === 'to_call' || r.stage === 'hold')}
-			<div class="card">
+			<div class="card o-call">
 				<div class="callhead"><b>Customer call</b><span class="pill p-warn">Attempt {Math.min(r.callback_attempts + 1, data.maxCalls)} of {data.maxCalls}</span></div>
 				<p class="small muted">After {data.maxCalls} unanswered calls it moves to Hold.</p>
 				<div class="three">
@@ -156,22 +173,12 @@
 			</div>
 		{/if}
 
-		{#if err}<p class="err" role="alert">{err}</p>{/if}
+		{#if err}<p class="err o-err" role="alert">{err}</p>{/if}
 
 		{#if r.stage !== 'unknown_parcel'}
-			<div class="card"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} onsaved={saved} /></div>
+			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} onsaved={saved} /></div>
 		{/if}
 
-		{#if r.notes}<div class="card"><b>Notes</b><p class="notes">{r.notes}</p></div>{/if}
-
-		<div class="card">
-			<b>History</b>
-			{#each data.events as e (e.id)}
-				{@const d = describe(e)}
-				<div class="ev" class:muted={d.muted}><span class="dot"></span><span><span class="et">{d.text}</span><small>{dateShort(e.received_at)} {new Date(e.received_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {d.who}</small></span></div>
-			{:else}
-				<p class="small muted">No history yet.</p>
-			{/each}
 		</div>
 	</main>
 </div>
@@ -179,6 +186,22 @@
 
 <style>
 	.stack { display: flex; flex-direction: column; gap: 12px; }
+	.crumb { font-size: 13px; color: var(--muted); }
+	.hval { margin-left: auto; font-size: 20px; }
+
+	/* Phone: one column in the original order. PC: details + history left, actions right */
+	@media (max-width: 1023.98px) {
+		.left, .right { display: contents; }
+		.o-undo { order: 1; } .o-details { order: 2; } .o-reship { order: 3; } .o-call { order: 4; }
+		.o-err { order: 5; } .o-picker { order: 6; } .o-notes { order: 7; } .o-history { order: 8; }
+	}
+	@media (min-width: 1024px) {
+		.cols { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 18px; align-items: start; }
+		.left, .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+		.dtop { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+		.dtop .addr { margin-top: 0; }
+		.topbar h1 { flex: none; }
+	}
 	.back { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 22px; }
 	dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 13.5px; }
 	dt { color: var(--muted); }

@@ -133,7 +133,7 @@
 <style>
 	.picker { display: flex; flex-direction: column; gap: 10px; }
 	.ttl { font-size: 14px; font-weight: 700; }
-	.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+	.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 8px; }
 	.opt { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 9px 11px; border-radius: 14px; border: 1px solid var(--line);
 		background: var(--surface); text-align: left; cursor: pointer; }
 	.opt.sel { border: 2px solid var(--acc); padding: 8px 10px; }

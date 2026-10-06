@@ -26,6 +26,7 @@ export interface Rto {
 	last_movement_at: string | null;
 	last_event_at: string | null;
 	legacy_source: string | null;
+	amount_collected?: number | string | null;
 	reship_order_no?: string | null;
 	reship_awb?: string | null;
 	reship_created_at?: string | null;
@@ -363,6 +364,7 @@ export interface ListRow {
 	rto: Rto;
 	bucket: BucketKey;
 	value: number;
+	when: number | null; // delivered back, else last courier move (for "oldest first")
 	ageText: string;
 	href: string | null;
 	sheetOnly: boolean;
@@ -380,7 +382,7 @@ export function rowFor(r: Rto, now: number, rules: Rules): ListRow {
 		const t = lastMove(r);
 		age = t === null ? 'no tracking date' : `Last move ${dateShort(new Date(t).toISOString())} · ${agoDays(daysSince(t, now))}`;
 	}
-	return { rto: r, bucket: b, value: num(r.order_value), ageText: age, href: trackingUrl(r), sheetOnly: isSheetOnly(r), nonDropy: isNonDropy(r) };
+	return { rto: r, bucket: b, value: num(r.order_value), when: ms(r.rto_delivered_at) ?? lastMove(r), ageText: age, href: trackingUrl(r), sheetOnly: isSheetOnly(r), nonDropy: isNonDropy(r) };
 }
 
 export function listRows(rtos: Rto[], filter: ListFilter, q: string, rules: Rules, now: number, claims: Claim[] = []): ListRow[] {
@@ -452,4 +454,64 @@ export function paymentBreakdown(r: { payment_mode: string | null; order_value: 
 		default:
 			return { label: inr(total), detail: null };
 	}
+}
+
+// ---------- PC Needs-action table ----------
+
+export type ActionGroup = 'followup' | 'notreceived' | 'reship' | 'lost';
+export const ACTION_GROUPS: { key: ActionGroup; label: string }[] = [
+	{ key: 'followup', label: 'Claim follow-ups' },
+	{ key: 'notreceived', label: 'Not received' },
+	{ key: 'reship', label: 'Re-ships' },
+	{ key: 'lost', label: 'Lost / unknown' }
+];
+
+export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
+	switch (i.kind) {
+		case 'claim_window':
+		case 'credit_due':
+			return 'followup';
+		case 'reship_found':
+			return 'reship';
+		case 'lost':
+		case 'unknown':
+			return 'lost';
+		default:
+			return 'notreceived';
+	}
+}
+
+/** Short "What" column text (the order number has its own column on PC). */
+export function actionWhat(i: ActionItem): string {
+	switch (i.kind) {
+		case 'claim_window': return 'Claim follow-up';
+		case 'credit_due': return 'Credit note due';
+		case 'reship_found': return `Re-shipped as #${i.rto?.reship_order_no ?? ''}?`;
+		case 'lost': return 'Marked lost';
+		case 'unknown': return 'Unknown parcel';
+		default: return 'Not received';
+	}
+}
+
+export type ListSort = 'value' | 'old';
+export const parseSort = (v: string | null): ListSort => (v === 'old' ? 'old' : 'value');
+
+/** Highest value first (default), or oldest first; rows with no date go last. */
+export function sortRows(rows: ListRow[], sort: ListSort): ListRow[] {
+	if (sort === 'value') return [...rows].sort((a, b) => b.value - a.value);
+	return [...rows].sort((a, b) => (a.when ?? Infinity) - (b.when ?? Infinity) || b.value - a.value);
+}
+
+/** Count per All RTOs view (PC sidebar). */
+export function filterCounts(rtos: Rto[], claims: Claim[], rules: Rules, now: number): Record<ListFilter, number> {
+	const out = Object.fromEntries(FILTERS.map((f) => [f.key, 0])) as Record<ListFilter, number>;
+	out.all = rtos.length;
+	out.action = needsAction(rtos, claims, rules, now).length;
+	const credit = new Set(claims.filter((c) => c.status === 'approved' && num(c.outstanding) > 0).map((c) => c.rto_id));
+	out.credit = rtos.filter((r) => credit.has(r.id)).length;
+	for (const r of rtos) {
+		const b = bucketOf(r, now, rules);
+		if (b in out) out[b as ListFilter]++;
+	}
+	return out;
 }

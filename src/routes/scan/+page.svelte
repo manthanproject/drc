@@ -123,7 +123,8 @@
 		<h1>Scan a return</h1>
 	</header>
 
-	<main class="content stack">
+	<main class="content stack cols">
+		<div class="left">
 		<Scanner bind:this={scanner} oncode={onCode} />
 
 		{#if undo}
@@ -132,6 +133,21 @@
 		{#if flash}<div class="flash" role="status">{flash}</div>{/if}
 		{#if finding}<p class="muted small">Looking up {code}…</p>{/if}
 		{#if findErr}<p class="err" role="alert">{findErr}</p>{/if}
+
+		<div class="card today-card">
+			<div class="todayhead"><b>Scanned today</b><span class="muted small">{data.today.length}</span></div>
+			{#each data.today as t (t.id)}
+				<a class="todayrow" href={rtoHref(t.id, '/scan')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
+			{:else}
+				<p class="muted small">Nothing yet today.</p>
+			{/each}
+		</div>
+		</div>
+
+		<div class="right">
+		{#if !r && !(matches && matches.length !== 1) && !finding}
+			<div class="card idle desk-only">Scan a label or type an AWB, order no., phone or name on the left. The parcel opens here.</div>
+		{/if}
 
 		{#if matches && matches.length > 1 && !detail}
 			<div class="sec">{matches.length} RTOs match “{code}”. Which one is in your hand?</div>
@@ -160,6 +176,7 @@
 				<div class="row1"><span class="small muted">Matched {code ? `“${code}”` : ''}</span>{#if bucket}<span class="pill p-{bucket.tone}">{bucket.label}</span>{/if}</div>
 				<div class="row2"><span class="ord">{orderLabel(r)}</span><span class="money big">{inr(num(r.order_value))}</span></div>
 				{#if already}<div class="warnline">Already processed: {bucket?.label}. Pick again only to change it.</div>{/if}
+				<div class="mbody">
 				<dl>
 					<dt>Courier</dt><dd>{r.carrier_name ?? '—'} <span class="mono">{r.forward_awb ?? ''}</span></dd>
 					<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
@@ -167,7 +184,7 @@
 					{#if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
 				</dl>
 				{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
-				{#if detail.items.length}{#key r.id}<ItemList items={detail.items} rtoId={r.id} />{/key}{/if}
+				{#if detail.items.length}<div class="mitems">{#key r.id}<ItemList items={detail.items} rtoId={r.id} />{/key}</div>{/if}
 				<div class="pack">
 					{#if !packing}<span class="muted small">Looking for the packing video…</span>
 					{:else if packing.state === 'found'}<a href={packing.url} target="_blank" rel="noopener noreferrer">▶ Packing video (DROPPY-Log)</a>
@@ -176,6 +193,7 @@
 					{:else}<span class="muted small">Packing video lookup failed</span>{/if}
 					<a class="small" href={rtoHref(r.id, '/scan')}>Open full page</a>
 					{#if trackingUrl(r)}<a class="small" href={trackingUrl(r)} target="_blank" rel="noopener noreferrer">Track</a>{/if}
+				</div>
 				</div>
 			</div>
 			{#if r.stage === 'unknown_parcel'}
@@ -187,14 +205,6 @@
 			{/if}
 			<button class="linkbtn" onclick={() => { closeCard(); scanner?.focusInput(); }}>Not this parcel? Scan again</button>
 		{/if}
-
-		<div class="card">
-			<div class="todayhead"><b>Scanned today</b><span class="muted small">{data.today.length}</span></div>
-			{#each data.today as t (t.id)}
-				<a class="todayrow" href={rtoHref(t.id, '/scan')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
-			{:else}
-				<p class="muted small">Nothing yet today.</p>
-			{/each}
 		</div>
 	</main>
 </div>
@@ -232,4 +242,23 @@
 	.linkbtn { background: none; border: 0; color: var(--acc); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 4px; }
 	.todayhead { display: flex; justify-content: space-between; margin-bottom: 4px; }
 	.todayrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+	.idle { color: var(--muted); text-align: center; padding: 40px 20px; border-style: dashed; }
+
+	/* Phone: one column, Scanned today last. PC: scan box + today on the left, the parcel on the right */
+	@media (max-width: 1023.98px) {
+		.left, .right, .mbody { display: contents; }
+		.today-card { order: 20; }
+	}
+	@media (min-width: 1024px) {
+		.cols { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 18px; align-items: start; }
+		.left, .right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+		.match { padding: 18px 20px; }
+		.mbody { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; }
+		.mbody > :not(.mitems) { grid-column: 1; }
+		.mitems { grid-column: 2; grid-row: 1 / span 3; }
+		.mitems :global(.items) { margin-top: 0; }
+		.ord { font-size: 28px; }
+		.linkbtn { align-self: flex-start; }
+		.picker-card :global(.grid) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	}
 </style>

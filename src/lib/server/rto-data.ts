@@ -2,7 +2,7 @@ import { db } from './supabase.ts';
 import { DEFAULT_RULES, num, type Claim, type Rto, type Rules } from '#lib/dashboard.ts';
 
 const RTO_COLS =
-	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, ' +
+	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, amount_collected, ' +
 	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, legacy_source, ' +
 	'reship_order_no, reship_awb, reship_created_at, reship_courier_status, reship_state';
 

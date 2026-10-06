@@ -129,7 +129,7 @@
 				<button onclick={stop}>Stop camera</button>
 			</div>
 		{:else}
-			<button class="startcam" onclick={start} disabled={starting}>{starting ? 'Starting camera…' : 'Scan with camera'}</button>
+			<button class="startcam" onclick={start} disabled={starting}>{#if starting}Starting camera…{:else}<span class="mobile-only">Scan with camera</span><span class="desk-only">Use webcam instead</span>{/if}</button>
 		{/if}
 	</div>
 	{#if err}<div class="err" role="alert">{err}</div>{/if}
@@ -156,4 +156,12 @@
 	.search button { height: 50px; padding: 0 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; cursor: pointer; }
 	.err { color: var(--bad); font-size: 13px; font-weight: 600; }
 	.sr { position: absolute; left: -9999px; }
+	/* PC: the type / scanner-gun box comes first; the webcam is a small optional button */
+	@media (min-width: 1024px) {
+		.search { order: -1; }
+		.search input { height: 54px; border: 2px solid var(--acc); }
+		.search button { height: 54px; }
+		.cam:not(.live) { height: auto; background: none; border: 1px dashed var(--line); border-radius: 12px; }
+		.cam:not(.live) .startcam { width: 100%; height: 44px; background: none; color: var(--muted); font-weight: 600; font-size: 14px; }
+	}
 </style>

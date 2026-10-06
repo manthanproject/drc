@@ -137,3 +137,31 @@ test('re-ship suggestion replaces the MDND line and keeps urgency order', () => 
 	assert.equal(a.find((i) => i.rto === rejected)!.kind, 'mdnd');
 	assert.deepEqual(a.map((i) => i.rto), [rejected, pending]); // 1 d left before 2 d left
 });
+
+test('PC table: action groups and short "What" text', async () => {
+	const { actionGroup, actionWhat } = await import('../src/lib/dashboard.ts');
+	assert.equal(actionGroup({ kind: 'claim_window' }), 'followup');
+	assert.equal(actionGroup({ kind: 'mdnd' }), 'notreceived');
+	assert.equal(actionGroup({ kind: 'no_date' }), 'notreceived');
+	assert.equal(actionGroup({ kind: 'reship_found' }), 'reship');
+	assert.equal(actionGroup({ kind: 'unknown' }), 'lost');
+	const r = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(5), reship_state: 'pending', reship_order_no: '3544-1', reship_created_at: ago(4) });
+	const [i] = needsAction([r], [], R, NOW);
+	assert.equal(actionWhat(i), 'Re-shipped as #3544-1?');
+});
+
+test('All RTOs: counts per view and oldest-first sort', async () => {
+	const { filterCounts, listRows, sortRows } = await import('../src/lib/dashboard.ts');
+	const a = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(10), order_value: 100 });
+	const b = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(1), order_value: 900 });
+	const c = rto({ stage: 'awaiting_receipt', order_value: 500 });
+	const h = rto({ stage: 'hold' });
+	const counts = filterCounts([a, b, c, h], [], R, NOW);
+	assert.equal(counts.all, 4);
+	assert.equal(counts.awaiting, 3);
+	assert.equal(counts.hold, 1);
+	assert.equal(counts.action, 2); // a (MDND) + c (no date); b is under 48 h
+	const rows = listRows([a, b, c], 'awaiting', '', R, NOW);
+	assert.deepEqual(sortRows(rows, 'value').map((r) => r.rto), [b, c, a]);
+	assert.deepEqual(sortRows(rows, 'old').map((r) => r.rto), [a, b, c]);
+});

@@ -25,6 +25,7 @@
 		border-top: 1px solid var(--line); background: var(--surface);
 		display: grid; grid-template-columns: 1fr 1fr 88px 1fr 1fr; align-items: center; text-align: center;
 	}
+	@media (min-width: 1024px) { .nav, .toast { display: none !important; } }
 	@media (min-width: 560px) { .nav { left: 50%; width: 560px; transform: translateX(-50%); border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
 	.nav a, .nav button { background: none; border: 0; padding: 0; font-size: 11px; color: var(--muted); cursor: pointer; }
 	.nav i { display: block; font-style: normal; font-size: 19px; line-height: 1.1; margin-bottom: 2px; }
