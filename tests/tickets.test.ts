@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTickets, ticketText, ticketSub, ticketPill, cleanTicketRef, type TicketRto } from '../src/lib/tickets.ts';
+import { buildTickets, ticketText, ticketSub, ticketPill, cleanTicketRef, placeText, type TicketRto } from '../src/lib/tickets.ts';
 import { DEFAULT_RULES, needsAction, rowFor, actionGroup, actionWhat, type Claim } from '../src/lib/dashboard.ts';
 import { buildQueue } from '../src/lib/queue.ts';
 import { describe as say } from '../src/lib/history.ts';
@@ -15,7 +15,7 @@ const rto = (id: string, p: Partial<TicketRto> = {}) =>
 
 const RTOS = [
 	rto('1146', { last_movement_at: iso(91), order_value: 3250, last_event_text: 'RTO In Transit', last_event_location: 'DELHI  HUB ,DELHI' }),
-	rto('1595', { last_movement_at: iso(42), order_value: 900, last_event_text: '261' }), // DTDC raw code: hidden
+	rto('1595', { last_movement_at: iso(42), order_value: 900, last_event_text: '261', last_event_location: ' , ' }), // DTDC raw code + empty place: hidden
 	rto('2001', { last_movement_at: iso(6.9) }), // 6 d: not yet (7)
 	rto('2002', { last_movement_at: null }), // no date: can't tell
 	rto('3082', { stage: 'lost', last_movement_at: iso(19), order_value: 3977, carrier_name: 'Delhivery' }),
@@ -94,6 +94,14 @@ test('raw courier status codes are not shown as the last update', () => {
 	const g = buildTickets(RTOS, CLAIMS, DEFAULT_RULES, NOW)[0].rows;
 	assert.equal(ticketSub(g.find((r) => r.label === '#1595')!), 'No movement for 42 d · DTDC');
 	assert.match(ticketText(g.filter((r) => r.label === '#1595'), 7).body, /\| last update 26 Aug 2026 \(42 days ago\) \|/);
+});
+
+test('place clean-up', () => {
+	assert.equal(placeText('DELHI  HUB ,DELHI'), 'DELHI HUB, DELHI');
+	assert.equal(placeText(' , '), null);
+	assert.equal(placeText(','), null);
+	assert.equal(placeText('VASHI BRANCH , MUMBAI,'), 'VASHI BRANCH, MUMBAI');
+	assert.equal(placeText(null), null);
 });
 
 test('ticket ref clean-up', () => {

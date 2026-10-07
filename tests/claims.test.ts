@@ -86,6 +86,7 @@ test('MDND remarks: delivered time + place, packing link, full value; bulk line 
 	assert.match(noPlace, /Delivered" on 5 Oct 2026 at 9:32 pm, but/);
 	assert.match(noPlace, /^DTDC marked 3 of our RTOs as delivered in the same minute \(29 Sep 2026 at 9:01 pm\)/m);
 	assert.equal(dateTimeLong('2026-10-07T06:35:00Z'), '7 Oct 2026 at 12:05 pm');
+	assert.match(mdndRemarks({ ...base, last_event_location: ' , ' }), /Delivered" on 5 Oct 2026 at 9:32 pm, but/, 'empty DTDC place dropped');
 });
 
 test('bulk same-minute evidence: 3+ same courier in one minute, none received', () => {

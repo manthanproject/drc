@@ -152,6 +152,12 @@ export function dateTimeLong(iso: string | null | undefined): string {
 	return `${dateLong(iso)} at ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
 }
 
+/** 'DELHI  HUB ,DELHI' → 'DELHI HUB, DELHI'; empty, ', ' or code-only → null (DTDC often sends ', '). */
+export function placeText(v: string | null | undefined): string | null {
+	const s = String(v ?? '').replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').replace(/^[,\s]+|[,\s]+$/g, '').trim();
+	return /[a-z]/i.test(s) ? s : null;
+}
+
 /** 'DTDC Standard 250G' → 'DTDC'. */
 export const carrierShort = (name: string | null | undefined) => String(name ?? '').trim().split(/\s+/)[0] || 'the courier';
 
@@ -196,7 +202,8 @@ export interface MdndInput {
 export function mdndRemarks(x: MdndInput): string {
 	const order = /^\d+(-\d+)*$/.test(String(x.order_no ?? '')) ? `#Dropy-${x.order_no}` : String(x.order_no ?? '');
 	const carrier = carrierShort(x.carrier_name);
-	const where = x.last_event_location && /deliver/i.test(x.last_event_text ?? '') ? ` at ${x.last_event_location.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim()}` : '';
+	const place = placeText(x.last_event_location);
+	const where = place && /deliver/i.test(x.last_event_text ?? '') ? ` at ${place}` : '';
 	const when = x.rto_delivered_at ? ` on ${dateTimeLong(x.rto_delivered_at)}` : '';
 	const value = Number(x.order_value);
 	const amount = `₹${inrFmt.format(Number.isFinite(value) ? Math.round(value) : 0)}`;
