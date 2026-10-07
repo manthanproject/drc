@@ -7,34 +7,62 @@ const API = 'https://www.googleapis.com/drive/v3/files';
 let cached: { token: string; until: number } | null = null;
 let rootId: string | null = null;
 
-/** Short-lived Drive token for warhawkchaos, vended by the DRC Uploader Apps Script. Server only. */
-async function driveToken(): Promise<string> {
-	if (cached && Date.now() < cached.until) return cached.token;
-	if (!DRC_UPLOADER_URL || !DRC_UPLOADER_TOKEN) throw new Error('DRC Uploader env vars missing');
-	const r = await fetch(DRC_UPLOADER_URL, {
-		method: 'POST',
-		headers: { 'content-type': 'text/plain' },
-		body: JSON.stringify({ token: DRC_UPLOADER_TOKEN, action: 'token' })
-	});
-	const text = await r.text();
-	let j: { ok?: boolean; accessToken?: string; error?: string };
-	try {
-		j = JSON.parse(text);
-	} catch {
-		throw new Error(`Uploader returned non-JSON (HTTP ${r.status}): ${text.slice(0, 120)}`);
+/** Drive call failed: the HTTP status (401, 403, 502…) is shown to staff so problems can be told apart. */
+export class DriveError extends Error {
+	constructor(public code: string, message: string) {
+		super(message);
 	}
-	if (!j.ok || !j.accessToken) throw new Error(`Uploader: ${j.error ?? 'no token'}`);
-	cached = { token: j.accessToken, until: Date.now() + 45 * 60 * 1000 };
-	return j.accessToken;
+}
+
+/**
+ * Short-lived Drive token for warhawkchaos, vended by the DRC Uploader Apps Script. Server only.
+ * Apps Script hands out the account's CURRENT token, which may already be part-used, so it is kept
+ * for 10 minutes only, and any 401 from Drive throws it away and fetches a fresh one (see withToken).
+ */
+async function driveToken(fresh = false): Promise<string> {
+	if (!fresh && cached && Date.now() < cached.until) return cached.token;
+	if (!DRC_UPLOADER_URL || !DRC_UPLOADER_TOKEN) throw new DriveError('env', 'DRC Uploader env vars missing');
+	let last: unknown;
+	for (let attempt = 0; attempt < 2; attempt++) {
+		try {
+			const r = await fetch(DRC_UPLOADER_URL, {
+				method: 'POST',
+				headers: { 'content-type': 'text/plain' },
+				body: JSON.stringify({ token: DRC_UPLOADER_TOKEN, action: 'token' })
+			});
+			const text = await r.text();
+			let j: { ok?: boolean; accessToken?: string; error?: string };
+			try {
+				j = JSON.parse(text);
+			} catch {
+				throw new DriveError(`uploader ${r.status}`, `Uploader returned non-JSON (HTTP ${r.status}): ${text.slice(0, 120)}`);
+			}
+			if (!j.ok || !j.accessToken) throw new DriveError('uploader', `Uploader: ${j.error ?? 'no token'}`);
+			cached = { token: j.accessToken, until: Date.now() + 10 * 60 * 1000 };
+			return j.accessToken;
+		} catch (e) {
+			last = e;
+			if (e instanceof DriveError && e.code === 'uploader') throw e; // wrong secret etc.: retrying won't help
+		}
+	}
+	throw last instanceof DriveError ? last : new DriveError('uploader', String(last));
+}
+
+/** Runs a Drive request; on 401 (token expired) gets a fresh token and tries once more. */
+async function withToken(run: (token: string) => Promise<Response>): Promise<Response> {
+	let r = await run(await driveToken());
+	if (r.status === 401) {
+		cached = null;
+		r = await run(await driveToken(true));
+	}
+	return r;
 }
 
 async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
-	const token = await driveToken();
-	const r = await fetch(url, {
-		...init,
-		headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers ?? {}) }
-	});
-	if (!r.ok) throw new Error(`Drive ${r.status}: ${(await r.text()).slice(0, 200)}`);
+	const r = await withToken((token) =>
+		fetch(url, { ...init, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers ?? {}) } })
+	);
+	if (!r.ok) throw new DriveError(`Drive ${r.status}`, `Drive ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	return r.json() as Promise<T>;
 }
 
@@ -68,10 +96,8 @@ export async function startUpload(
 	size: number,
 	origin: string
 ): Promise<string> {
-	const token = await driveToken();
-	const r = await fetch(
-		'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size,mimeType',
-		{
+	const r = await withToken((token) =>
+		fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size,mimeType', {
 			method: 'POST',
 			headers: {
 				authorization: `Bearer ${token}`,
@@ -81,10 +107,10 @@ export async function startUpload(
 				origin
 			},
 			body: JSON.stringify({ name, parents: [folderId] })
-		}
+		})
 	);
 	const location = r.headers.get('location');
-	if (!r.ok || !location) throw new Error(`Upload session ${r.status}: ${(await r.text()).slice(0, 200)}`);
+	if (!r.ok || !location) throw new DriveError(`Drive ${r.status}`, `Upload session ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	return location;
 }
 

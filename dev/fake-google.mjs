@@ -4,12 +4,19 @@
 const real = globalThis.fetch;
 const files = new Map(); // id → {name, parent, mimeType}
 let n = 0;
+let tokens = 0;
 const json = (body, init = {}) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } });
 export const driveLog = [];
 
 globalThis.fetch = async (input, init = {}) => {
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-	if (url.startsWith('https://script.google.com/')) return json({ ok: true, accessToken: 'fake-token', account: 'fake@dev' });
+	if (url.startsWith('https://script.google.com/')) return json({ ok: true, accessToken: `fake-token-${++tokens}`, account: 'fake@dev' });
+	// FAKE_DRIVE_EXPIRED_TOKEN=1: the first token handed out is already expired (Drive answers 401), like a part-used Apps Script token
+	const auth = String(new Headers(init.headers ?? {}).get('authorization') ?? '');
+	if (url.startsWith('https://www.googleapis.com/') && process.env.FAKE_DRIVE_EXPIRED_TOKEN === '1' && auth === 'Bearer fake-token-1') {
+		driveLog.push({ op: '401', url });
+		return new Response('{"error":{"code":401,"message":"Invalid Credentials"}}', { status: 401 });
+	}
 	if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files')) {
 		const meta = JSON.parse(String(init.body ?? '{}'));
 		driveLog.push({ op: 'upload-session', name: meta.name, parent: meta.parents?.[0] });

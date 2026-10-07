@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import VideoRecorder from '#lib/components/VideoRecorder.svelte';
+	import PhotoCamera from '#lib/components/PhotoCamera.svelte';
 	import { REASONS, EVIDENCE, velocityDisputeType, reasonOf, claimReasonLabel, claimStatus, type ReasonKey, type MediaKind } from '#lib/claims.ts';
 	import { claimReturn, withUndo } from '#lib/scan.ts';
 	import { asinOf } from '#lib/products.ts';
@@ -26,6 +27,7 @@
 	let note = $state('');
 	let media = $state<Record<MediaKind, Up>>({ unboxing_video: idle(), front: idle(), back: idle(), label: idle() });
 	let recorder = $state(false);
+	let camera = $state<MediaKind | null>(null);
 	let saving = $state(false);
 	let err = $state('');
 	let restored = $state(false);
@@ -39,13 +41,14 @@
 	);
 	const vType = $derived(reason ? velocityDisputeType(reasonOf(reason)!.claimReason) : null);
 
-	// ---- keep progress if the phone reloads the tab (e.g. after the camera app) ----
+	// ---- keep progress if the phone reloads the tab (e.g. Android frees memory while the camera app is open).
+	// localStorage, not sessionStorage: a killed tab can lose its session storage. Kept 2 days, cleared on save.
 	const KEY = $derived(`drc-claim-${r.id}`);
 	onMount(() => {
 		if (items.length === 1) ticked = [items[0].id];
 		try {
-			const s = JSON.parse(sessionStorage.getItem(KEY) ?? 'null');
-			if (s && typeof s === 'object') {
+			const s = JSON.parse(localStorage.getItem(KEY) ?? 'null');
+			if (s && typeof s === 'object' && Date.now() - Number(s.at ?? 0) < 2 * 86_400_000) {
 				if (reasonOf(s.reason)) reason = s.reason;
 				if (Array.isArray(s.ticked)) ticked = s.ticked.filter((id: string) => items.some((i) => i.id === id));
 				if (typeof s.restockOthers === 'boolean') restockOthers = s.restockOthers;
@@ -61,9 +64,9 @@
 		if (!restored) return;
 		const keep: Record<string, unknown> = {};
 		for (const e of EVIDENCE) if (media[e.kind].state === 'done') keep[e.kind] = { id: media[e.kind].id, mime: media[e.kind].mime, size: media[e.kind].size };
-		const snap = JSON.stringify({ reason, ticked, restockOthers, note, media: keep });
+		const snap = JSON.stringify({ at: Date.now(), reason, ticked, restockOthers, note, media: keep });
 		try {
-			sessionStorage.setItem(KEY, snap);
+			localStorage.setItem(KEY, snap);
 		} catch {
 			/* ignore */
 		}
@@ -83,14 +86,14 @@
 			x.setRequestHeader('content-type', type);
 			x.upload.onprogress = (e) => e.lengthComputable && onpct(Math.round((e.loaded / e.total) * 100));
 			x.onload = () => {
-				if (x.status >= 300) return reject(new Error(`Drive said ${x.status}`));
+				if (x.status >= 300) return reject(new Error(`Drive said ${x.status}, try again.`));
 				try {
 					resolve(JSON.parse(x.responseText));
 				} catch {
-					reject(new Error('Drive answer unreadable'));
+					reject(new Error('Drive answer unreadable, try again.'));
 				}
 			};
-			x.onerror = () => reject(new Error('Upload stopped (network)'));
+			x.onerror = () => reject(new Error('Upload stopped (network), try again.'));
 			x.send(f);
 		});
 	}
@@ -101,19 +104,25 @@
 		if (old) URL.revokeObjectURL(old);
 		media[kind] = { state: 'uploading', pct: 0, preview: type.startsWith('image/') ? URL.createObjectURL(file) : undefined };
 		try {
-			const s = await fetch(`/api/rto/${r.id}/media-session`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ kind, mimeType: type, size: file.size, name: file.name })
-			});
-			const sess = await s.json().catch(() => ({}));
-			if (!s.ok) throw new Error(sess?.message ?? `Server said ${s.status}`);
+			// one upload link at a time, so two photos never race to create the claim folder twice
+			const sess = await (sessions = sessions.catch(() => {}).then(async () => {
+				const s = await fetch(`/api/rto/${r.id}/media-session`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ kind, mimeType: type, size: file.size, name: file.name })
+				});
+				const b = await s.json().catch(() => ({}));
+				if (!s.ok) throw new Error(b?.message ?? `Server said ${s.status}, try again.`);
+				return b;
+			}));
 			const res = await put(sess.uploadUrl, file, type, (p) => (media[kind].pct = p));
 			media[kind] = { ...media[kind], state: 'done', pct: 100, id: res.id, mime: res.mimeType ?? type, size: Number(res.size ?? file.size) };
 		} catch (e) {
-			media[kind] = { ...media[kind], state: 'error', err: e instanceof Error ? e.message : 'Upload failed' };
+			media[kind] = { ...media[kind], state: 'error', err: e instanceof Error ? e.message : 'Upload failed, try again.' };
 		}
 	}
+
+	let sessions: Promise<unknown> = Promise.resolve();
 
 	function picked(kind: MediaKind, e: Event) {
 		const el = e.currentTarget as HTMLInputElement;
@@ -146,7 +155,7 @@
 				return;
 			}
 			try {
-				sessionStorage.removeItem(KEY);
+				localStorage.removeItem(KEY);
 			} catch {
 				/* ignore */
 			}
@@ -239,7 +248,7 @@
 									<b>{e.label}</b>
 									{#if m.state === 'uploading'}<span class="bar"><span style="width: {m.pct}%"></span></span><small class="muted">Uploading {m.pct}%</small>
 									{:else if m.state === 'done'}<small class="okt">Saved to Drive{m.size ? ` · ${sizeText(m.size)}` : ''}</small>
-									{:else if m.state === 'error'}<small class="bad">{m.err}. Try again.</small>{/if}
+									{:else if m.state === 'error'}<small class="bad">{m.err}</small>{/if}
 								</span>
 								<span class="evact">
 									{#if e.video}
@@ -250,7 +259,7 @@
 										<input class="hide" type="file" accept="video/*" bind:this={inputs.videoFile} onchange={(ev) => picked('unboxing_video', ev)} />
 									{:else}
 										{#if m.state !== 'uploading'}
-											<button type="button" class="act" class:redo={m.state === 'done'} onclick={() => inputs[e.kind]?.click()}>{m.state === 'done' ? 'Retake' : 'Take'}</button>
+											<button type="button" class="act" class:redo={m.state === 'done'} onclick={() => (camera = e.kind)}>{m.state === 'done' ? 'Retake' : 'Take'}</button>
 										{/if}
 										<input class="hide" type="file" accept="image/*" capture="environment" bind:this={inputs[e.kind]} onchange={(ev) => picked(e.kind, ev)} />
 										<input class="hide" type="file" accept="image/*" bind:this={inputs[e.kind + 'File']} onchange={(ev) => picked(e.kind, ev)} />
@@ -263,6 +272,7 @@
 										<button type="button" class="link" onclick={() => inputs.video?.click()}>Camera app</button>
 										<button type="button" class="link" onclick={() => inputs.videoFile?.click()}>Choose file</button>
 									{:else}
+										<button type="button" class="link" onclick={() => inputs[e.kind]?.click()}>Camera app</button>
 										<button type="button" class="link" onclick={() => inputs[e.kind + 'File']?.click()}>Choose file</button>
 									{/if}
 								</div>
@@ -289,6 +299,18 @@
 	</main>
 </div>
 <BottomNav active={backHref.startsWith('/scan') ? 'scan' : 'all'} />
+
+{#if camera}
+	<PhotoCamera
+		label={EVIDENCE.find((x) => x.kind === camera)?.label ?? 'Photo'}
+		onclose={() => (camera = null)}
+		onfile={(f) => {
+			const k = camera!;
+			camera = null;
+			upload(k, f);
+		}}
+	/>
+{/if}
 
 {#if recorder}
 	<VideoRecorder

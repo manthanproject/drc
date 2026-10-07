@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { db } from './supabase.ts';
 import { fail, UUID } from './actions.ts';
-import { claimFolder, startUpload, shareAnyoneReader, ensureShortcut } from './drive.ts';
+import { claimFolder, startUpload, shareAnyoneReader, ensureShortcut, DriveError } from './drive.ts';
 import { findPacking } from './droppy.ts';
 import { reasonOf, isMediaKind, isDummyItem, mediaFileName, extOf, claimRemarks, driveFileUrl, driveFolderUrl } from '#lib/claims.ts';
 
@@ -35,7 +35,8 @@ async function loadRto(id: string): Promise<ClaimRto> {
 
 function driveFail(e: unknown): never {
 	console.error('drive failed', e);
-	error(502, 'Google Drive did not answer. Nothing was saved, try again.');
+	const code = e instanceof DriveError ? e.code : 'network';
+	error(502, `Google Drive did not answer (${code}). Nothing was saved, try again.`);
 }
 
 /** Upload link for ONE evidence file. The phone then PUTs the file straight to Drive (never through Vercel). */
