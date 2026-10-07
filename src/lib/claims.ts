@@ -75,11 +75,14 @@ export function isDummyItem(it: { sku?: string | null; title?: string | null }):
 	return !String(it.sku ?? '').trim() && /^pay on delivery\b/i.test(String(it.title ?? '').trim());
 }
 
+/** File names in a claim folder start with this ('1642-1_', 'Krishna_1005_'). */
+export const orderFilePrefix = (orderNo: string) => `${String(orderNo).replace(/[^\w-]+/g, '_')}_`;
+
 /** Upload file name in the claim folder: 3379_front_20261006-1142.jpg (IST). */
 export function mediaFileName(orderNo: string, kind: string, ext: string, now: number): string {
 	const d = new Date(now + 5.5 * 3_600_000).toISOString(); // IST wall clock
 	const stamp = `${d.slice(0, 10).replace(/-/g, '')}-${d.slice(11, 16).replace(':', '')}`;
-	const safeOrder = String(orderNo).replace(/[^\w-]+/g, '_');
+	const safeOrder = orderFilePrefix(orderNo).slice(0, -1);
 	const safeExt = String(ext).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'bin';
 	return `${safeOrder}_${kind}_${stamp}.${safeExt}`;
 }
@@ -137,3 +140,74 @@ export function claimRemarks(x: RemarksInput): string {
 
 export const velocityOrderUrl = (orderNo: string | null | undefined) =>
 	`https://dashboard.velocity.in/shipping/orders?order_status=all&search=${encodeURIComponent(orderNo ?? '')}`;
+
+// ---------- MDND (marked delivered back, never received) ----------
+
+/** '5 Oct 2026 at 9:32 pm' in IST. */
+export function dateTimeLong(iso: string | null | undefined): string {
+	const t = iso ? Date.parse(iso) : NaN;
+	if (Number.isNaN(t)) return '';
+	const d = new Date(t + 5.5 * 3_600_000);
+	const h = d.getUTCHours(), m = d.getUTCMinutes();
+	return `${dateLong(iso)} at ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+/** 'DTDC Standard 250G' → 'DTDC'. */
+export const carrierShort = (name: string | null | undefined) => String(name ?? '').trim().split(/\s+/)[0] || 'the courier';
+
+export interface BulkRto {
+	id: string;
+	carrier_name: string | null;
+	rto_delivered_at: string | null;
+	scanned_at?: string | null;
+}
+
+/**
+ * Bulk-update evidence: the courier marked 3+ of our RTOs "delivered" in the SAME minute and NONE of them reached us.
+ * Returns null when it would not help (fewer than 3, or any of them was actually received and scanned).
+ */
+export function bulkSameMinute(target: BulkRto, all: BulkRto[]): { count: number; at: string } | null {
+	const t = target.rto_delivered_at ? Date.parse(target.rto_delivered_at) : NaN;
+	if (Number.isNaN(t)) return null;
+	const minute = Math.floor(t / 60_000);
+	const carrier = carrierShort(target.carrier_name).toLowerCase();
+	const group = all.filter((r) => {
+		const x = r.rto_delivered_at ? Date.parse(r.rto_delivered_at) : NaN;
+		return !Number.isNaN(x) && Math.floor(x / 60_000) === minute && carrierShort(r.carrier_name).toLowerCase() === carrier;
+	});
+	if (!group.some((r) => r.id === target.id)) group.push(target);
+	if (group.length < 3 || group.some((r) => r.scanned_at)) return null;
+	return { count: group.length, at: target.rto_delivered_at! };
+}
+
+export interface MdndInput {
+	order_no: string | null;
+	forward_awb: string | null;
+	carrier_name: string | null;
+	order_value: number | string | null;
+	rto_delivered_at: string | null;
+	last_event_text?: string | null;
+	last_event_location?: string | null;
+	packing?: string | null;
+	bulk?: { count: number; at: string } | null;
+}
+
+/** MDND remarks for Velocity → Dispute → MDND. Never names the company. */
+export function mdndRemarks(x: MdndInput): string {
+	const order = /^\d+(-\d+)*$/.test(String(x.order_no ?? '')) ? `#Dropy-${x.order_no}` : String(x.order_no ?? '');
+	const carrier = carrierShort(x.carrier_name);
+	const where = x.last_event_location && /deliver/i.test(x.last_event_text ?? '') ? ` at ${x.last_event_location.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim()}` : '';
+	const when = x.rto_delivered_at ? ` on ${dateTimeLong(x.rto_delivered_at)}` : '';
+	const value = Number(x.order_value);
+	const amount = `₹${inrFmt.format(Number.isFinite(value) ? Math.round(value) : 0)}`;
+	return [
+		`RTO for order ${order} (AWB ${x.forward_awb ?? '—'}, ${carrier}) is marked "Return - Delivered"${when}${where}, but it has not been received at our warehouse.`,
+		x.bulk
+			? `${carrier} marked ${x.bulk.count} of our RTOs as delivered in the same minute (${dateTimeLong(x.bulk.at)}), and none of them has reached our warehouse. This points to a bulk status update, not real deliveries.`
+			: '',
+		x.packing ? `Pre-dispatch packing video with label: ${x.packing}` : '',
+		`Please share the POD (receiver signature / delivery photo / receiver name and ID) within 48 hours, or treat the shipment as lost and settle the claim for the full order value of ${amount}.`
+	]
+		.filter(Boolean)
+		.join('\n');
+}

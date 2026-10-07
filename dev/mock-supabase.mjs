@@ -75,6 +75,11 @@ add({ stage: 'lost', courier_status: 'lost', order_no: '3082', order_value: 3977
 // one "Arrived, not scanned" RTO that the hourly check found re-shipped (Phase 3a)
 { const r = rows.find((x) => x.order_no === '2954'); Object.assign(r, { reship_state: 'pending', reship_order_no: '2954-1', reship_awb: 'TEST000009', reship_created_at: new Date(NOW - 4 * DAY).toISOString(), reship_courier_status: 'delivered' }); }
 
+// Phase 3d: DTDC marked 3 RTOs "delivered" in the same minute (bulk update), none scanned
+{ const t = new Date(NOW - 3.2 * DAY); t.setUTCSeconds(10, 0);
+  for (const [o, sec] of [['3946', 10], ['2876', 25], ['2951', 50]]) { const r = rows.find((x) => x.order_no === o); const d = new Date(t); d.setUTCSeconds(sec);
+    Object.assign(r, { carrier_name: 'DTDC Standard', rto_delivered_at: d.toISOString(), last_event_text: 'Return - Delivered', last_event_location: 'VASHI BRANCH , MUMBAI' }); } }
+
 // Velocity disputes as the real API returned them on 6 Oct (status "raised" = panel "In Review")
 for (const [o, at] of [['2731', '2026-10-04T19:55:03.252+05:30'], ['3536', '2026-10-04T19:54:50.852+05:30']]) {
 	const r = rows.find((x) => x.order_no === o);
@@ -156,6 +161,20 @@ function mockClaim({ p_rto, p_args: a }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim', from, to: 'claim', before, claim: { op: 'create', id: cid, reason: a.reason, items_before: itemsBefore, media_ids: mids, n_items: a.items.length, n_restock: a.restock.length }, args: { scanned: !!a.scanned, note: a.note || null } } });
 	return [200, { event_id: id, claim_id: cid, from, to: 'claim' }];
 }
+function mockMdnd({ p_rto, p_args = {} }) {
+	const r = rows.find((x) => x.id === p_rto);
+	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (r.stage !== 'awaiting_receipt' || r.scanned_at) return [400, { message: 'DRC_NOT_AWAITING' }];
+	if (claims.some((c) => c.rto_id === r.id && !['closed', 'rejected'].includes(c.status))) return [400, { message: 'DRC_CLAIM_EXISTS' }];
+	const cid = `00000000-0000-0000-0000-c${String(++eventId).padStart(11, '0')}`;
+	claims.unshift({ id: cid, rto_id: r.id, reason: 'mdnd', status: 'draft', channel: 'panel_dispute', ticket_ref: null, claimed_amount: r.order_value, description: p_args.description, created_at: new Date().toISOString(), deadline_at: new Date(Date.parse(r.rto_delivered_at) + 7 * DAY).toISOString(), approved_at: null, raised_at: null });
+	claimMoney.push({ claim_id: cid, outstanding: r.order_value });
+	const before = { stage: r.stage, scanned_at: r.scanned_at, refund_state: r.refund_state, callback_attempts: r.callback_attempts, reship_state: r.reship_state, notes: r.notes ?? null, media_state: 'none', media_folder_id: null };
+	r.stage = 'claim';
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim', from: 'awaiting_receipt', to: 'claim', before, claim: { op: 'create', id: cid, reason: 'mdnd', items_before: [], media_ids: [], n_items: 0, n_restock: 0 }, args: { scanned: false } } });
+	return [200, { event_id: id, claim_id: cid, from: 'awaiting_receipt', to: 'claim' }];
+}
 function mockClaimAction({ p_claim, p_action, p_args = {} }) {
 	const c = claims.find((x) => x.id === p_claim);
 	if (!c) return [400, { message: 'DRC_NOT_FOUND' }];
@@ -215,8 +234,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

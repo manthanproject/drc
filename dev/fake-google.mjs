@@ -6,7 +6,10 @@ const files = new Map(); // id → {name, parent, mimeType}
 let n = 0;
 let tokens = 0;
 const json = (body, init = {}) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } });
+import { appendFileSync } from 'node:fs';
 export const driveLog = [];
+const _push = driveLog.push.bind(driveLog);
+driveLog.push = (x) => { try { appendFileSync(process.env.FAKE_DRIVE_LOG ?? '/tmp/fake-drive.log', JSON.stringify(x) + '\n'); } catch {} return _push(x); };
 
 globalThis.fetch = async (input, init = {}) => {
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -20,6 +23,7 @@ globalThis.fetch = async (input, init = {}) => {
 	if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files')) {
 		const meta = JSON.parse(String(init.body ?? '{}'));
 		driveLog.push({ op: 'upload-session', name: meta.name, parent: meta.parents?.[0] });
+		files.set(`fakeUp${String(n + 1).padStart(8, '0')}x`, { name: meta.name, parent: meta.parents?.[0], mimeType: meta.mimeType }); // id the mock upload will return
 		const q = new URLSearchParams({ name: meta.name, parent: meta.parents?.[0] ?? '' });
 		return new Response('', { status: 200, headers: { location: `http://127.0.0.1:54321/fake-upload/${++n}?${q}` } });
 	}
@@ -30,10 +34,17 @@ globalThis.fetch = async (input, init = {}) => {
 			driveLog.push({ op: 'share', id: perm[1], body: JSON.parse(String(init.body ?? '{}')) });
 			return json({ id: 'anyoneWithLink' });
 		}
+		if ((init.method ?? 'GET') === 'PATCH') {
+			const id = decodeURIComponent(u.pathname.split('/').pop());
+			driveLog.push({ op: 'trash', id, name: files.get(id)?.name });
+			files.delete(id);
+			return json({ id });
+		}
 		if ((init.method ?? 'GET') === 'GET') {
 			const q = u.searchParams.get('q') ?? '';
 			const name = q.match(/name = '((?:[^'\\]|\\.)*)'/)?.[1]?.replace(/\\(.)/g, '$1');
 			const parent = q.match(/'([^']+)' in parents/)?.[1];
+			if (name === undefined) return json({ files: [...files].filter(([, f]) => f.parent === parent).map(([id, f]) => ({ id, name: f.name, mimeType: f.mimeType })) });
 			const hit = [...files].find(([, f]) => f.name === name && f.parent === parent);
 			return json({ files: hit ? [{ id: hit[0] }] : [] });
 		}

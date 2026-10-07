@@ -12,7 +12,7 @@
 	const active = $derived.by(() => {
 		let p = page.url.pathname;
 		if (p.startsWith('/rto/')) p = safePath(page.url.searchParams.get('from'))?.split('?')[0] ?? '/rtos';
-		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : 'all';
+		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : 'all';
 	});
 
 	function find(e: SubmitEvent) {
@@ -35,7 +35,7 @@
 		<nav aria-label="Main">
 			<a href="/" class:on={active === 'home'} aria-current={active === 'home' ? 'page' : undefined}>Home</a>
 			<span class="off" title="Ready Stock tab comes in the next update">Ready Stock</span>
-			<span class="off" title="Claims comes in a later update">Claims</span>
+			<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}>Claims</a>
 			<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}>All RTOs</a>
 		</nav>
 		<span class="grow"></span>

@@ -27,8 +27,8 @@
 	});
 	const fromParam = $derived(safePath(page.url.searchParams.get('from')));
 	const backHref = $derived(cameFrom ?? fromParam ?? '/rtos');
-	const backLabel = $derived(backHref.startsWith('/scan') ? 'Scan' : backHref === '/' ? 'Home' : 'All RTOs');
-	const navActive = $derived(backHref.startsWith('/scan') ? 'scan' : backHref === '/' ? 'home' : 'all');
+	const backLabel = $derived(backHref.startsWith('/scan') ? 'Scan' : backHref.startsWith('/claims') ? 'Disputes' : backHref === '/' ? 'Home' : 'All RTOs');
+	const navActive = $derived(backHref.startsWith('/scan') ? 'scan' : backHref.startsWith('/claims') ? 'claims' : backHref === '/' ? 'home' : 'all');
 
 	// WhatsApp: a ready-to-send draft to copy (playbook template E), never opens WhatsApp
 	let showDraft = $state(false);
@@ -159,7 +159,14 @@
 
 		<div class="right">
 		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
-		{#each claims as c (c.id)}
+		{#if r.stage === 'awaiting_receipt' && !openClaim && r.courier && r.rto_delivered_at && Date.now() - Date.parse(r.rto_delivered_at) > 48 * 3_600_000}
+			<div class="card o-claim mdndhint">
+				<b>Not received?</b>
+				<p class="small muted">The courier marked it delivered back on {dateShort(r.rto_delivered_at)}. If it is not in the warehouse, draft an MDND dispute.</p>
+				<a class="go" href="/claims?sel={r.id}">Draft MDND in Disputes →</a>
+			</div>
+		{/if}
+				{#each claims as c (c.id)}
 			<div class="o-claim"><ClaimCard claim={c} orderNo={r.order_no} folderId={r.media_folder_id} media={data.media} packingUrl={packing?.state === 'found' ? packing.url : null} onraised={raised} /></div>
 		{/each}
 		{#if disputes.length}
@@ -234,6 +241,8 @@
 	.reason { margin: 6px 0 0; white-space: pre-line; color: var(--muted); }
 	.upd { margin: 4px 0 0; }
 	.hval { margin-left: auto; font-size: 20px; }
+	.mdndhint { border-color: var(--acc); }
+	.mdndhint p { margin: 4px 0 10px; }
 
 	/* Phone: one column in the original order. PC: details + history left, actions right */
 	@media (max-width: 1023.98px) {

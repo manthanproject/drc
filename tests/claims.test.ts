@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { describe as say } from '../src/lib/history.ts';
-import { REASONS, reasonOf, velocityDisputeType, claimRemarks, isDummyItem, mediaFileName, extOf, dateLong, claimStatus } from '../src/lib/claims.ts';
+import { REASONS, reasonOf, velocityDisputeType, claimRemarks, isDummyItem, mediaFileName, extOf, dateLong, claimStatus, mdndRemarks, bulkSameMinute, dateTimeLong } from '../src/lib/claims.ts';
 
 test('every reason maps to a Velocity dispute type (same mapping as create_rto_claim)', () => {
 	const want: Record<string, string> = { wrong: 'wrong_product', damaged: 'damaged', missing: 'missing_items', leak: 'damaged', empty: 'missing_items', near_expiry: 'wrong_product' };
@@ -73,4 +73,32 @@ test('history wording for claims', () => {
 		'Scanned · RTO claim: Wrong product (1 item), saved as Draft · 2 items to Ready Stock');
 	assert.equal(say(ev({ action: 'claim_raised', to: 'claim', args: { ticket_ref: '#106500' } })).text, 'Claim marked raised (ref #106500)');
 	assert.equal(say(ev({ action: 'claim_raised', to: 'claim', args: {}, undone: true })).text, 'Claim marked raised (undone)');
+});
+
+test('MDND remarks: delivered time + place, packing link, full value; bulk line only when it helps', () => {
+	const base = { order_no: '3136', forward_awb: '7D139886865', carrier_name: 'DTDC Standard 250G', order_value: '4175.00', rto_delivered_at: '2026-10-05T16:02:00Z', last_event_text: 'Return - Delivered', last_event_location: 'VASHI BRANCH , MUMBAI' };
+	assert.equal(mdndRemarks({ ...base, packing: 'https://p' }), [
+		'RTO for order #Dropy-3136 (AWB 7D139886865, DTDC) is marked "Return - Delivered" on 5 Oct 2026 at 9:32 pm at VASHI BRANCH, MUMBAI, but it has not been received at our warehouse.',
+		'Pre-dispatch packing video with label: https://p',
+		'Please share the POD (receiver signature / delivery photo / receiver name and ID) within 48 hours, or treat the shipment as lost and settle the claim for the full order value of ₹4,175.'
+	].join('\n'));
+	const noPlace = mdndRemarks({ ...base, last_event_text: 'RTO FDM Prepared', bulk: { count: 3, at: '2026-09-29T15:31:00Z' } });
+	assert.match(noPlace, /Delivered" on 5 Oct 2026 at 9:32 pm, but/);
+	assert.match(noPlace, /^DTDC marked 3 of our RTOs as delivered in the same minute \(29 Sep 2026 at 9:01 pm\)/m);
+	assert.equal(dateTimeLong('2026-10-07T06:35:00Z'), '7 Oct 2026 at 12:05 pm');
+});
+
+test('bulk same-minute evidence: 3+ same courier in one minute, none received', () => {
+	const at = '2026-09-29T15:31:20Z';
+	const t = { id: 'a', carrier_name: 'DTDC Standard', rto_delivered_at: at };
+	const others = [
+		{ id: 'b', carrier_name: 'DTDC Standard 250G', rto_delivered_at: '2026-09-29T15:31:05Z' },
+		{ id: 'c', carrier_name: 'DTDC', rto_delivered_at: '2026-09-29T15:31:59Z' },
+		{ id: 'd', carrier_name: 'Delhivery', rto_delivered_at: at },
+		{ id: 'e', carrier_name: 'DTDC', rto_delivered_at: '2026-09-29T15:32:00Z' }
+	];
+	assert.deepEqual(bulkSameMinute(t, [t, ...others]), { count: 3, at });
+	assert.equal(bulkSameMinute(t, [t, others[0]]), null, 'only 2: not convincing');
+	assert.equal(bulkSameMinute(t, [t, others[0], { ...others[1], scanned_at: '2026-10-01T05:00:00Z' }]), null, 'one of them arrived: skip');
+	assert.equal(bulkSameMinute({ ...t, rto_delivered_at: null }, others), null);
 });

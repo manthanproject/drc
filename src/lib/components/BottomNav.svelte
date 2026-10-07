@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { active }: { active: 'home' | 'all' | 'scan' } = $props();
+	let { active }: { active: 'home' | 'all' | 'scan' | 'claims' } = $props();
 	let toast = $state('');
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	function soon(what: string, phase: string) {
@@ -14,7 +14,7 @@
 	<a href="/" class:on={active === 'home'} aria-current={active === 'home' ? 'page' : undefined}><i>⌂</i>Home</a>
 	<button type="button" class="off" onclick={() => soon('Ready Stock tab', 'the next update')}><i>▤</i>Ready Stock</button>
 	<a href="/scan" class="fab" class:fabon={active === 'scan'} aria-label="Scan a return" aria-current={active === 'scan' ? 'page' : undefined}><i>⌗</i></a>
-	<button type="button" class="off" onclick={() => soon('Claims', 'a later update')}><i>⚑</i>Claims</button>
+	<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}><i>⚑</i>Claims</a>
 	<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}><i>☰</i>All RTOs</a>
 </nav>
 

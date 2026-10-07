@@ -1,9 +1,10 @@
 import { error } from '@sveltejs/kit';
 import { db } from './supabase.ts';
 import { fail, UUID } from './actions.ts';
-import { claimFolder, startUpload, shareAnyoneReader, ensureShortcut, DriveError } from './drive.ts';
+import { claimFolder, startUpload, shareAnyoneReader, ensureShortcut, trashUnused, DriveError } from './drive.ts';
+import { allRtos } from './rto-data.ts';
 import { findPacking } from './droppy.ts';
-import { reasonOf, isMediaKind, isDummyItem, mediaFileName, extOf, claimRemarks, driveFileUrl, driveFolderUrl } from '#lib/claims.ts';
+import { reasonOf, isMediaKind, isDummyItem, mediaFileName, extOf, claimRemarks, driveFileUrl, driveFolderUrl, orderFilePrefix, mdndRemarks, bulkSameMinute } from '#lib/claims.ts';
 
 const ID = /^[\w-]{1,64}$/; // rto_items ids (uuid in the database)
 const DRIVE_ID = /^[\w-]{10,200}$/;
@@ -127,7 +128,41 @@ export async function createClaim(rtoId: string, raw: unknown) {
 		p_args: { reason: reason.key, items, restock, media, folder_id: folder.id, description, note, scanned }
 	});
 	if (e) fail(e.message);
-	return { ...(data as { event_id: number; claim_id: string; from: string; to: string }), packing: !!packingUrl };
+
+	// Retakes and failed tries stay in the folder otherwise; Velocity should see only what the claim uses
+	let trashed = 0;
+	try {
+		trashed = await trashUnused(folder.id, media.map((m) => m.drive_file_id), orderFilePrefix(r.order_no!));
+	} catch (err) {
+		console.error('folder clean-up skipped', err);
+	}
+	return { ...(data as { event_id: number; claim_id: string; from: string; to: string }), packing: !!packingUrl, trashed };
+}
+
+/** MDND draft from the Disputes queue: remarks with the courier's "delivered" time, packing link and bulk-update evidence. */
+export async function createMdndDraft(rtoId: string) {
+	if (!UUID.test(rtoId)) error(404, 'RTO not found');
+	const { data: r, error: e1 } = await db()
+		.from('rtos')
+		.select('id, courier, order_no, forward_awb, carrier_name, order_value, rto_delivered_at, last_event_text, last_event_location, scanned_at')
+		.eq('id', rtoId)
+		.maybeSingle();
+	if (e1) throw new Error(`rtos: ${e1.message}`);
+	if (!r) error(404, 'RTO not found');
+	if (!r.courier || !r.forward_awb) error(400, 'Old-sheet RTO with no courier/AWB: a claim is not possible here');
+
+	let packing: string | null = null;
+	try {
+		const p = await findPacking(r.forward_awb);
+		if (p?.videoFileId && !p.filesDeleted) packing = driveFileUrl(p.videoFileId);
+	} catch (err) {
+		console.error('packing lookup skipped', err);
+	}
+	const bulk = bulkSameMinute(r, await allRtos());
+	const description = mdndRemarks({ ...r, packing, bulk });
+	const { data, error: e } = await db().rpc('create_mdnd_claim', { p_rto: r.id, p_args: { description } });
+	if (e) fail(e.message);
+	return { ...(data as { event_id: number; claim_id: string; from: string; to: string }), bulk: bulk?.count ?? 0, packing: !!packing };
 }
 
 /** 'raise' (Draft → Raised, optional ticket ref, final remarks) or 'save_text'. */

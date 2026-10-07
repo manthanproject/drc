@@ -143,3 +143,22 @@ export async function ensureShortcut(folderId: string, targetId: string, name: s
 	const made = await addShortcut(folderId, targetId, name);
 	return { id: made.id, created: true };
 }
+
+/**
+ * After a claim is saved: files DRC put in the claim folder that the claim does NOT use (retakes, failed tries)
+ * go to Drive's Trash (30-day undo, never deleted). Only names DRC made (`<order>_…`), never shortcuts.
+ */
+export async function trashUnused(folderId: string, keepIds: string[], prefix: string): Promise<number> {
+	const query = `'${folderId}' in parents and trashed = false`;
+	const list = await api<{ files: { id: string; name: string; mimeType?: string }[] }>(
+		`${API}?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType)&pageSize=100`
+	);
+	const keep = new Set(keepIds);
+	let n = 0;
+	for (const f of list.files) {
+		if (keep.has(f.id) || !f.name.startsWith(prefix) || f.mimeType === 'application/vnd.google-apps.shortcut' || / \(shortcut\)$/.test(f.name)) continue;
+		await api(`${API}/${encodeURIComponent(f.id)}?fields=id`, { method: 'PATCH', body: JSON.stringify({ trashed: true }) });
+		n++;
+	}
+	return n;
+}

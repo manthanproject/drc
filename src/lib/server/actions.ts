@@ -26,7 +26,8 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_MEDIA_REQUIRED: [400, 'Unboxing video, front, back and label photos are all needed'],
 	DRC_BAD_MEDIA: [400, 'Unknown media type'],
 	DRC_CLAIM_NOT_DRAFT: [409, 'The claim is already raised, so it cannot be undone here'],
-	DRC_TEXT_REQUIRED: [400, 'Remarks are empty']
+	DRC_TEXT_REQUIRED: [400, 'Remarks are empty'],
+	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
 };
 
 export function fail(message: string): never {
