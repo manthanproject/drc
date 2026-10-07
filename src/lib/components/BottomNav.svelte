@@ -1,18 +1,10 @@
 <script lang="ts">
-	let { active }: { active: 'home' | 'all' | 'scan' | 'claims' } = $props();
-	let toast = $state('');
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	function soon(what: string, phase: string) {
-		toast = `${what} comes in ${phase}`;
-		clearTimeout(timer);
-		timer = setTimeout(() => (toast = ''), 2200);
-	}
+	let { active }: { active: 'home' | 'all' | 'scan' | 'claims' | 'stock' } = $props();
 </script>
 
-{#if toast}<div class="toast" role="status">{toast}</div>{/if}
 <nav class="nav" aria-label="Main">
 	<a href="/" class:on={active === 'home'} aria-current={active === 'home' ? 'page' : undefined}><i>⌂</i>Home</a>
-	<button type="button" class="off" onclick={() => soon('Ready Stock tab', 'the next update')}><i>▤</i>Ready Stock</button>
+	<a href="/stock" class:on={active === 'stock'} aria-current={active === 'stock' ? 'page' : undefined}><i>▤</i>Ready Stock</a>
 	<a href="/scan" class="fab" class:fabon={active === 'scan'} aria-label="Scan a return" aria-current={active === 'scan' ? 'page' : undefined}><i>⌗</i></a>
 	<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}><i>⚑</i>Claims</a>
 	<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}><i>☰</i>All RTOs</a>
@@ -25,21 +17,15 @@
 		border-top: 1px solid var(--line); background: var(--surface);
 		display: grid; grid-template-columns: 1fr 1fr 88px 1fr 1fr; align-items: center; text-align: center;
 	}
-	@media (min-width: 1024px) { .nav, .toast { display: none !important; } }
+	@media (min-width: 1024px) { .nav { display: none !important; } }
 	@media (min-width: 560px) { .nav { left: 50%; width: 560px; transform: translateX(-50%); border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
-	.nav a, .nav button { background: none; border: 0; padding: 0; font-size: 11px; color: var(--muted); cursor: pointer; }
+	.nav a { background: none; border: 0; padding: 0; font-size: 11px; color: var(--muted); cursor: pointer; }
 	.nav i { display: block; font-style: normal; font-size: 19px; line-height: 1.1; margin-bottom: 2px; }
 	.nav .on { color: var(--acc); font-weight: 600; }
-	.nav .off { opacity: 0.45; }
 	.nav .fab {
 		justify-self: center; width: 62px; height: 62px; border-radius: 20px; background: var(--acc); color: var(--acc-ink);
 		display: grid; place-items: center; margin-top: -26px; box-shadow: 0 10px 22px -10px var(--acc);
 	}
 	.nav .fab i { font-size: 22px; margin: 0; }
 	.nav .fab.fabon { outline: 3px solid var(--acc-soft); }
-	.toast {
-		position: fixed; left: 50%; transform: translateX(-50%); z-index: 11;
-		bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 14px);
-		background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 12px;
-	}
 </style>

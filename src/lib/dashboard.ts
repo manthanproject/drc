@@ -35,6 +35,7 @@ export interface Rto {
 	reship_state?: 'none' | 'pending' | 'confirmed' | 'rejected' | null;
 	scanned_at?: string | null;
 	media_folder_id?: string | null;
+	refund_state?: string | null;
 }
 
 /** One Velocity dispute as the API returns it (seen 6 Oct: status 'raised' = "In Review" in the panel). */

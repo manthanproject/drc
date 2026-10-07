@@ -27,6 +27,8 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_BAD_MEDIA: [400, 'Unknown media type'],
 	DRC_CLAIM_NOT_DRAFT: [409, 'The claim is already raised, so it cannot be undone here'],
 	DRC_TEXT_REQUIRED: [400, 'Remarks are empty'],
+	DRC_NOT_IN_STOCK: [409, 'Nothing of this item is left in stock. Refresh the page'],
+	DRC_NOTHING_DUE: [409, 'Nothing is owed on this order any more. Refresh the page'],
 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
 };
 

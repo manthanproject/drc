@@ -12,7 +12,7 @@
 	const active = $derived.by(() => {
 		let p = page.url.pathname;
 		if (p.startsWith('/rto/')) p = safePath(page.url.searchParams.get('from'))?.split('?')[0] ?? '/rtos';
-		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : 'all';
+		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : p.startsWith('/stock') ? 'stock' : 'all';
 	});
 
 	function find(e: SubmitEvent) {
@@ -34,7 +34,7 @@
 		<a class="brand" href="/"><span class="mark">D</span><b>Returns</b></a>
 		<nav aria-label="Main">
 			<a href="/" class:on={active === 'home'} aria-current={active === 'home' ? 'page' : undefined}>Home</a>
-			<span class="off" title="Ready Stock tab comes in the next update">Ready Stock</span>
+			<a href="/stock" class:on={active === 'stock'} aria-current={active === 'stock' ? 'page' : undefined}>Ready Stock</a>
 			<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}>Claims</a>
 			<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}>All RTOs</a>
 		</nav>
@@ -59,10 +59,9 @@
 	.brand { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
 	.brand b { font-size: 17px; }
 	nav { display: flex; gap: 22px; }
-	nav a, nav .off { padding: 18px 2px 15px; font-size: 14.5px; color: var(--muted); border-bottom: 2px solid transparent; }
+	nav a { padding: 18px 2px 15px; font-size: 14.5px; color: var(--muted); border-bottom: 2px solid transparent; }
 	nav a.on { color: var(--acc); border-color: var(--acc); font-weight: 700; }
 	nav a:hover { color: var(--ink); }
-	nav .off { opacity: 0.5; cursor: default; }
 	.grow { flex: 1; }
 	.find { display: flex; align-items: center; gap: 8px; height: 40px; width: 300px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; color: var(--muted); }
 	.find input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 13.5px; color: var(--ink); }

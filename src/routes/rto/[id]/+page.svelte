@@ -27,8 +27,8 @@
 	});
 	const fromParam = $derived(safePath(page.url.searchParams.get('from')));
 	const backHref = $derived(cameFrom ?? fromParam ?? '/rtos');
-	const backLabel = $derived(backHref.startsWith('/scan') ? 'Scan' : backHref.startsWith('/claims') ? 'Disputes' : backHref === '/' ? 'Home' : 'All RTOs');
-	const navActive = $derived(backHref.startsWith('/scan') ? 'scan' : backHref.startsWith('/claims') ? 'claims' : backHref === '/' ? 'home' : 'all');
+	const backLabel = $derived(backHref.startsWith('/scan') ? 'Scan' : backHref.startsWith('/claims') ? 'Disputes' : backHref.startsWith('/stock') ? 'Ready Stock' : backHref === '/' ? 'Home' : 'All RTOs');
+	const navActive = $derived(backHref.startsWith('/scan') ? 'scan' : backHref.startsWith('/claims') ? 'claims' : backHref.startsWith('/stock') ? 'stock' : backHref === '/' ? 'home' : 'all');
 
 	// WhatsApp: a ready-to-send draft to copy (playbook template E), never opens WhatsApp
 	let showDraft = $state(false);

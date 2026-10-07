@@ -36,6 +36,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 				const n = Number(p.claim?.n_items ?? 0), k = Number(p.claim?.n_restock ?? 0);
 				text = `RTO claim: ${reasonOf(p.claim?.reason)?.label ?? 'claim'}${n ? ` (${n} item${n > 1 ? 's' : ''})` : ''}, saved as Draft${k ? ` · ${k} item${k > 1 ? 's' : ''} to Ready Stock` : ''}`;
 			}
+			if (p.action === 'stock_reuse') text = `Re-used 1 × ${p.args?.item ?? 'item'}${p.args?.order_no ? ` in #${p.args.order_no}` : ''} (${p.args?.unit ?? '?'} of ${p.args?.qty ?? '?'})`;
+			if (p.action === 'money_done') text = p.args?.money === 'credit_done' ? 'Store credit given' : 'Refund done';
 			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
 			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;
@@ -62,6 +64,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			const kind = String(p.type ?? '').toUpperCase() === 'MDND' ? 'MDND' : disputeType(p.type);
 			return { text: p.from ? `Velocity dispute (${kind}): ${disputeStatus(p.from).label} → ${to}` : `Velocity dispute (${kind}) seen: ${to}`, who: 'Velocity', muted: false };
 		}
+		case 'stock_backfill':
+			return { text: `Old Ready Stock: ${p.items ?? ''} item(s) listed as In stock`, who: 'DRC', muted: true };
 		case 'test_reset':
 			return { text: `Test scans cleared, back to ${stageName(p.restored_stage)}`, who: 'Staff (SQL)', muted: true };
 		case 'unknown_parcel':

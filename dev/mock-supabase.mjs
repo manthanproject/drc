@@ -114,6 +114,14 @@ const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `00000000-000
     { id: '00000000-0000-0000-0000-00000000a002', rto_id: r.id, sku: 'Dropy-B0F67B33PQ', title: 'ROUND LAB Birch Juice Icy Cooling Eye Stick', qty: 1, is_gift: false, ready_stock_state: 'na', condition: 'pending' },
     { id: '00000000-0000-0000-0000-00000000a003', rto_id: r.id, sku: null, title: 'Pay on Delivery', qty: 1, is_gift: false, ready_stock_state: 'na', condition: 'pending' }); }
 const rtoMedia = [];
+// Phase 3e: Ready Stock RTOs → their items In stock (as 0009 does); some prepaid ones still owe a refund / credit
+for (const it of rtoItems) Object.assign(it, { condition: it.condition ?? 'pending', reused_qty: 0, reused_orders: [], ready_stock_at: null });
+{ let k = 0;
+  for (const r of rows.filter((x) => x.stage === 'ready_stock')) {
+    for (const it of rtoItems.filter((i) => i.rto_id === r.id)) Object.assign(it, { ready_stock_state: 'in_stock', ready_stock_at: r.rto_delivered_at ?? new Date(NOW - 5 * DAY).toISOString(), qty: k % 4 === 0 ? 2 : 1 });
+    if (r.payment_mode !== 'cod' && k % 2 === 0) r.refund_state = k % 4 === 0 ? 'due' : 'credit_due';
+    k++;
+  } }
 const claimMoney = claims.map((c) => ({ claim_id: c.id, outstanding: rows.find((r) => r.id === c.rto_id).order_value }));
 const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia };
 const STAGE_OF = { received_call: 'to_call', ready_stock: 'ready_stock', reship: 'reship', hold: 'hold', close: 'closed', reship_confirm: 'closed' };
@@ -175,6 +183,26 @@ function mockMdnd({ p_rto, p_args = {} }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim', from: 'awaiting_receipt', to: 'claim', before, claim: { op: 'create', id: cid, reason: 'mdnd', items_before: [], media_ids: [], n_items: 0, n_restock: 0 }, args: { scanned: false } } });
 	return [200, { event_id: id, claim_id: cid, from: 'awaiting_receipt', to: 'claim' }];
 }
+function mockStock({ p_action, p_args }) {
+	if (p_action === 'reuse') {
+		const it = rtoItems.find((i) => i.id === p_args.item_id);
+		if (!it || it.ready_stock_state !== 'in_stock' || it.reused_qty >= it.qty) return [400, { message: 'DRC_NOT_IN_STOCK' }];
+		const r = rows.find((x) => x.id === it.rto_id);
+		const item_before = { id: it.id, reused_qty: it.reused_qty, reused_orders: [...it.reused_orders], ready_stock_state: it.ready_stock_state };
+		const o = String(p_args.order_no ?? '').trim().replace(/^#?(dropy-)?/i, '');
+		it.reused_qty++; if (o) it.reused_orders.push(o); if (it.reused_qty >= it.qty) it.ready_stock_state = 'reused';
+		const id = ++eventId;
+		events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'stock_reuse', from: r.stage, to: r.stage, before: { stage: r.stage, refund_state: r.refund_state }, item_before, args: { item: it.title, order_no: o || null, unit: it.reused_qty, qty: it.qty } } });
+		return [200, { event_id: id, left: it.qty - it.reused_qty }];
+	}
+	const r = rows.find((x) => x.id === p_args.rto_id);
+	const to = { due: 'done', credit_due: 'credit_done' }[r?.refund_state];
+	if (!to) return [400, { message: 'DRC_NOTHING_DUE' }];
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'money_done', from: r.stage, to: r.stage, before: { stage: r.stage, refund_state: r.refund_state }, args: { money: to } } });
+	r.refund_state = to;
+	return [200, { event_id: id, refund_state: to }];
+}
 function mockClaimAction({ p_claim, p_action, p_args = {} }) {
 	const c = claims.find((x) => x.id === p_claim);
 	if (!c) return [400, { message: 'DRC_NOT_FOUND' }];
@@ -201,6 +229,7 @@ function mockUndo({ p_event }) {
 		claims.splice(claims.indexOf(c), 1);
 	}
 	if (cl?.op === 'raise') Object.assign(claims.find((x) => x.id === cl.id), cl.claim_before);
+	if (e.payload.item_before) Object.assign(rtoItems.find((i) => i.id === e.payload.item_before.id), e.payload.item_before);
 	Object.assign(r, e.payload.before);
 	e.payload.undone = true;
 	events.unshift({ id: ++eventId, source: 'user', rto_id: r.id, kind: 'undo', received_at: new Date().toISOString(), payload: { undid: e.id, restored_stage: r.stage } });
@@ -234,8 +263,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}
