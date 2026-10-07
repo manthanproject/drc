@@ -29,6 +29,12 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_TEXT_REQUIRED: [400, 'Remarks are empty'],
 	DRC_NOT_IN_STOCK: [409, 'Nothing of this item is left in stock. Refresh the page'],
 	DRC_NOTHING_DUE: [409, 'Nothing is owed on this order any more. Refresh the page'],
+	DRC_TICKET_REF_REQUIRED: [400, 'Type the ticket number'],
+	DRC_NO_PARCELS: [400, 'Tick at least one parcel'],
+	DRC_MIXED_COURIER: [400, 'One ticket per courier: tick parcels of one courier only'],
+	DRC_HAS_CLAIM: [409, 'One of these parcels already has an open claim or ticket. Refresh the page'],
+	DRC_BAD_DATE: [400, 'Raised date must be today or earlier'],
+	DRC_TICKET_CHANGED: [409, 'The ticket was already updated, so it cannot be undone here'],
 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
 };
 

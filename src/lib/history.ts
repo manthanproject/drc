@@ -38,6 +38,10 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			}
 			if (p.action === 'stock_reuse') text = `Re-used 1 × ${p.args?.item ?? 'item'}${p.args?.order_no ? ` in #${p.args.order_no}` : ''} (${p.args?.unit ?? '?'} of ${p.args?.qty ?? '?'})`;
 			if (p.action === 'money_done') text = p.args?.money === 'credit_done' ? 'Store credit given' : 'Refund done';
+			if (p.action === 'ticket_raised') {
+				const n = Number(p.args?.parcels ?? 1);
+				text = `Courier ticket ${p.args?.ticket_ref ?? ''} raised: ${p.args?.reason === 'mdnd' ? 'not received' : 'lost or stuck'}${n > 1 ? ` (${n} parcels on this ticket)` : ''}`;
+			}
 			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
 			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;

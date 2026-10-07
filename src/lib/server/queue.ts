@@ -2,8 +2,9 @@ import { db } from './supabase.ts';
 import { allRtos, settings } from './rto-data.ts';
 import { buildQueue, type QueueClaim } from '#lib/queue.ts';
 import { EVIDENCE } from '#lib/claims.ts';
+import { buildTickets } from '#lib/tickets.ts';
 
-const CLAIM_COLS = 'id, rto_id, reason, status, ticket_ref, claimed_amount, deadline_at, raised_at, description, created_at';
+const CLAIM_COLS = 'id, rto_id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, deadline_at, raised_at, description, created_at';
 
 export interface PaneRto {
 	id: string;
@@ -21,7 +22,7 @@ export interface PaneRto {
 export async function loadQueue() {
 	const [rtos, c, s] = await Promise.all([
 		allRtos(),
-		db().from('claims').select(CLAIM_COLS).in('status', ['draft', 'raised', 'waiting', 'escalated']),
+		db().from('claims').select(CLAIM_COLS).in('status', ['draft', 'raised', 'waiting', 'approved', 'escalated']),
 		settings()
 	]);
 	if (c.error) throw new Error(`claims: ${c.error.message}`);
@@ -38,6 +39,7 @@ export async function loadQueue() {
 
 	const now = Date.now();
 	const queue = buildQueue(rtos, claims, counts, s.rules, now);
+	const tickets = buildTickets(rtos, claims, s.rules, now);
 	const want = new Set([...queue.toRaise, ...queue.raised].map((r) => r.rtoId));
 	const pane: Record<string, PaneRto> = {};
 	for (const r of rtos)
@@ -46,5 +48,5 @@ export async function loadQueue() {
 				id: r.id, order_no: r.order_no, forward_awb: r.forward_awb, carrier_name: r.carrier_name, order_value: r.order_value,
 				payment_mode: r.payment_mode, rto_delivered_at: r.rto_delivered_at, media_folder_id: r.media_folder_id ?? null, customer_name: r.customer_name
 			};
-	return { queue, claims, media, pane, now };
+	return { queue, tickets, stuckDays: s.rules.stuckDays, claims, media, pane, now };
 }

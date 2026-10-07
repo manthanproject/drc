@@ -41,6 +41,7 @@ export interface ClaimRow {
 	reason: string;
 	status: string;
 	channel: string;
+	ticket_url?: string | null;
 	ticket_ref: string | null;
 	claimed_amount: number | string;
 	deadline_at: string | null;
@@ -66,7 +67,7 @@ export async function getRtoDetail(id: string) {
 		db().from('rtos').select(COLS).eq('id', id).maybeSingle(),
 		db().from('rto_items').select('id, sku, title, qty, is_gift, ready_stock_state, condition').eq('rto_id', id).order('is_gift').order('title'),
 		db().from('events').select('id, source, kind, payload, received_at').eq('rto_id', id).order('id', { ascending: false }).limit(40),
-		db().from('claims').select('id, reason, status, channel, ticket_ref, claimed_amount, deadline_at, raised_at, description, created_at').eq('rto_id', id).order('created_at', { ascending: false }),
+		db().from('claims').select('id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, deadline_at, raised_at, description, created_at').eq('rto_id', id).order('created_at', { ascending: false }),
 		db().from('rto_media').select('id, kind, drive_file_id, mime_type, size_bytes, uploaded_at').eq('rto_id', id).is('trashed_at', null).order('uploaded_at')
 	]);
 	if (r.error) throw new Error(`rtos: ${r.error.message}`);

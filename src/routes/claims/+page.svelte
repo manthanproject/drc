@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick as tick_ } from 'svelte';
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import ClaimCard from '#lib/components/ClaimCard.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
+	import TicketDraft from '#lib/components/TicketDraft.svelte';
+	import { ticketSub, ticketPill, COURIER_NAME, type TicketGroup } from '#lib/tickets.ts';
 	import { inr, num, dateShort } from '#lib/dashboard.ts';
 	import { rtoHref, undoFromUrl } from '#lib/scan.ts';
 	import type { QueueRow } from '#lib/queue.ts';
@@ -20,6 +22,13 @@
 	let err = $state('');
 	let packing = $state<Record<string, string | null>>({});
 	let paneEl = $state<HTMLElement>();
+	// Phase 4: parcels ticked for one combined courier ticket (one courier at a time)
+	let ticked = $state<string[]>([]);
+	let view = $state<'claim' | 'ticket'>('claim');
+	const tickRows = $derived(data.tickets.flatMap((g) => g.rows).filter((r) => ticked.includes(r.rtoId)));
+	const tickValue = $derived(tickRows.reduce((s, r) => s + r.amount, 0));
+	const ticketN = $derived(data.tickets.reduce((s, g) => s + g.rows.length, 0));
+	const ticketValue = $derived(data.tickets.reduce((s, g) => s + g.value, 0));
 
 	const row = $derived(all.find((r) => r.rtoId === sel) ?? null);
 	const claim = $derived(row?.claimId ? data.claims.find((c) => c.id === row.claimId) ?? null : null);
@@ -54,10 +63,34 @@
 			.catch(() => {});
 	});
 
+	function tick(g: TicketGroup, id: string) {
+		const same = tickRows.every((r) => r.courier === g.courier);
+		const base = same ? ticked : [];
+		ticked = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+		view = 'ticket';
+	}
+	function tickAll(g: TicketGroup) {
+		const ids = g.rows.map((r) => r.rtoId);
+		ticked = ids.every((id) => ticked.includes(id)) ? [] : ids;
+		view = 'ticket';
+	}
+	async function showTicket() {
+		view = 'ticket';
+		await tick_();
+		paneEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
+	async function ticketRaised(eventId: number, n: number, ref: string) {
+		undo = { text: `Ticket ${ref} recorded on ${n} parcel${n > 1 ? 's' : ''}`, eventId };
+		ticked = [];
+		view = 'claim';
+		await invalidateAll();
+	}
+
 	async function pick(r: QueueRow) {
 		sel = r.rtoId;
+		view = 'claim';
 		err = '';
-		await tick();
+		await tick_();
 		if (!window.matchMedia('(min-width: 1024px)').matches) paneEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	}
 
@@ -105,10 +138,11 @@
 		<h1>Disputes</h1>
 	</header>
 
-	<main class="content">
+	<main class="content" class:withbar={tickRows.length > 0}>
 		<div class="head">
 			<h1 class="desk-only">Disputes to raise</h1>
 			<span class="pill {q.totals.n ? 'p-bad' : 'p-ok'}">{q.totals.n ? `${q.totals.n} to raise · ${inr(q.totals.value)}` : 'Nothing to raise'}</span>
+			{#if ticketN}<span class="pill p-warn">{ticketN} for a ticket · {inr(ticketValue)}</span>{/if}
 		</div>
 		<p class="lead muted">Every claim ready to paste into Velocity. Raise one, mark it raised, the next one opens.</p>
 		{#if undo}<div class="undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
@@ -124,9 +158,24 @@
 				{:else}
 					<p class="small muted empty">Nothing waiting to be raised.</p>
 				{/each}
-				{#if q.olderNotReceived}
-					<a class="older small" href="/rtos?f=action">{q.olderNotReceived} older not-received parcel{q.olderNotReceived > 1 ? 's' : ''} (window closed or no date) → Needs action</a>
-				{/if}
+				{#each data.tickets as g (g.courier)}
+					{@const all = g.rows.every((r) => ticked.includes(r.rtoId))}
+					<div class="sec tsec">
+						<span>TICKETS TO RAISE · {(COURIER_NAME[g.courier] ?? g.courier).toUpperCase()} · {g.rows.length}</span>
+						<button class="link" onclick={() => tickAll(g)}>{all ? 'Clear' : 'Select all'}</button>
+					</div>
+					<p class="small muted hint">Stuck {data.stuckDays}+ days, marked lost, or not received after the dispute window. The panel dispute can't take these: tick them for one ticket.</p>
+					{#each g.rows as t (t.rtoId)}
+						{@const pill = ticketPill(t)}
+						<label class="qrow trow" class:on={ticked.includes(t.rtoId)}>
+							<span class="l1">
+								<span class="lb"><input type="checkbox" checked={ticked.includes(t.rtoId)} onchange={() => tick(g, t.rtoId)} /><b>{t.label}</b>{#if t.nonDropy}<span class="pill p-mute">not Dropy</span>{/if}</span>
+								<b class="money">{inr(t.amount)}</b>
+							</span>
+							<span class="l2"><span class="muted">{ticketSub(t)}</span><span class="pill p-{pill.tone}">{pill.label}</span></span>
+						</label>
+					{/each}
+				{/each}
 
 				{#if q.raised.length}
 					<div class="sec">RAISED · FOLLOW UP</div>
@@ -140,7 +189,11 @@
 			</div>
 
 			<div class="pane" bind:this={paneEl}>
-				{#if row && info}
+				{#if view === 'ticket' && tickRows.length}
+					<TicketDraft rows={tickRows} stuckDays={data.stuckDays} onraised={ticketRaised} />
+				{:else if view === 'ticket'}
+					<div class="card idle">Tick parcels under "Tickets to raise". One ticket text covers all of them, ready to paste.</div>
+				{:else if row && info}
 					<div class="ptop">
 						<a class="small open" href={rtoHref(row.rtoId, '/claims')}>Open RTO page →</a>
 						<span class="small muted">{info.carrier_name ?? ''} <span class="mono">{info.forward_awb ?? ''}</span>{info.customer_name ? ` · ${info.customer_name}` : ''}</span>
@@ -172,6 +225,12 @@
 			</div>
 		</div>
 	</main>
+	{#if tickRows.length}
+		<div class="tbar mobile-only">
+			<span><b>{tickRows.length} ticked</b> · {inr(tickValue)}</span>
+			<button onclick={showTicket}>Draft ticket ↓</button>
+		</div>
+	{/if}
 </div>
 <BottomNav active="claims" />
 
@@ -189,7 +248,18 @@
 	.l1 b:first-child { font-size: 16px; font-weight: 800; }
 	.l2 .muted { font-size: 13px; }
 	.empty { margin: 4px 2px; }
-	.older { color: var(--acc); font-weight: 600; margin: 2px 2px 6px; }
+	.tsec { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+	.link { border: 0; background: none; color: var(--acc); font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 2px; }
+	.hint { margin: 0 2px 2px; line-height: 1.45; }
+	.trow { cursor: pointer; }
+	@media (max-width: 1023.98px) { .withbar { padding-bottom: 84px; } }
+	.lb { display: inline-flex; align-items: center; gap: 10px; }
+	.lb input { width: 20px; height: 20px; accent-color: var(--acc); margin: 0; flex: none; }
+	.tbar { position: fixed; left: 12px; right: 12px; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 10px); z-index: 11;
+		display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: 14px;
+		background: var(--ink); color: var(--bg); font-size: 14px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.18); }
+	.tbar button { height: 42px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--acc); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+	@media (min-width: 560px) { .tbar { left: 50%; right: auto; width: 536px; transform: translateX(-50%); } }
 	.ptop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 	.open { color: var(--acc); font-weight: 700; }
 	.mdnd { display: flex; flex-direction: column; gap: 10px; border-color: var(--acc); }

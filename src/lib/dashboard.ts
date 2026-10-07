@@ -36,6 +36,8 @@ export interface Rto {
 	scanned_at?: string | null;
 	media_folder_id?: string | null;
 	refund_state?: string | null;
+	last_event_text?: string | null;
+	last_event_location?: string | null;
 }
 
 /** One Velocity dispute as the API returns it (seen 6 Oct: status 'raised' = "In Review" in the panel). */
@@ -99,9 +101,11 @@ export interface Rules {
 	mdndHours: number;
 	delayedDays: number;
 	windowDays: number;
+	/** Coming back with no movement this long = "Likely lost" → courier ticket (Phase 4). */
+	stuckDays: number;
 }
 
-export const DEFAULT_RULES: Rules = { mdndHours: 48, delayedDays: 3, windowDays: 7 };
+export const DEFAULT_RULES: Rules = { mdndHours: 48, delayedDays: 3, windowDays: 7, stuckDays: 7 };
 
 export const num = (v: unknown): number => {
 	const n = typeof v === 'number' ? v : Number(v ?? 0);
@@ -172,6 +176,13 @@ export function isDelayed(r: Rto, now: number, rules: Rules): boolean {
 	return t !== null && now - t >= rules.delayedDays * DAY;
 }
 
+/** Coming back with no tracking movement for stuckDays+ (no date = can't tell, never flagged). */
+export function isStuck(r: Rto, now: number, rules: Rules): boolean {
+	if (r.stage !== 'in_flight' && r.stage !== 'delayed') return false;
+	const t = lastMove(r);
+	return t !== null && now - t >= rules.stuckDays * DAY;
+}
+
 /** Every RTO lands in exactly one bucket. */
 export function bucketOf(r: Rto, now: number, rules: Rules): BucketKey {
 	switch (r.stage) {
@@ -208,7 +219,7 @@ const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated
 
 // ---------- needs action ----------
 
-export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found';
+export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found';
 
 export interface ActionItem {
 	key: string;
@@ -240,7 +251,7 @@ function windowFields(deadline: number | null, now: number) {
 const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Tone => {
 	if (i.kind === 'reship_found') return 'ok';
 	if (i.daysLeft !== null) return i.daysLeft <= 2 ? 'bad' : 'warn';
-	if (i.kind === 'lost' || i.kind === 'unknown') return 'bad';
+	if (i.kind === 'lost' || i.kind === 'stuck' || i.kind === 'unknown') return 'bad';
 	if (i.windowClosed || i.kind === 'no_date') return 'mute';
 	return 'warn';
 };
@@ -248,11 +259,19 @@ const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Ton
 export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: number): ActionItem[] {
 	const out: ActionItem[] = [];
 	const byId = new Map(rtos.map((r) => [r.id, r]));
+	// a courier ticket (Phase 4) is an open claim on a parcel that keeps its stage: don't ask again
+	const claimed = new Set(claims.filter((c) => OPEN_CLAIM.has(c.status)).map((c) => c.rto_id));
 	const push = (i: Omit<ActionItem, 'tone' | 'href' | 'nonDropy'>) =>
 		out.push({ ...i, tone: toneFor(i), href: i.rto ? trackingUrl(i.rto) : null, nonDropy: i.rto ? isNonDropy(i.rto) : false });
 
 	for (const r of rtos) {
-		if (r.stage === 'awaiting_receipt') {
+		if (claimed.has(r.id)) continue;
+		if (isStuck(r, now, rules)) {
+			const t = lastMove(r)!;
+			push({ key: `stuck-${r.id}`, kind: 'stuck', rto: r, title: `${orderLabel(r)} likely lost`,
+				detail: `No movement since ${dateShort(new Date(t).toISOString())}${r.last_event_text ? ` (${r.last_event_text})` : ''}, raise a ticket`,
+				amount: num(r.order_value), ageDays: daysSince(t, now), ...windowFields(null, now) });
+		} else if (r.stage === 'awaiting_receipt') {
 			const t = ms(r.rto_delivered_at);
 			if (r.reship_state === 'pending' && r.reship_order_no) {
 				// Probably received and re-shipped: one tap to confirm instead of an MDND claim
@@ -430,7 +449,7 @@ export function rowFor(r: Rto, now: number, rules: Rules): ListRow {
 		age = t === null ? 'RTO delivered, no tracking date' : `RTO delivered ${dateShort(r.rto_delivered_at)} · ${agoDays(daysSince(t, now))}`;
 	} else {
 		const t = lastMove(r);
-		age = t === null ? 'no tracking date' : `Last move ${dateShort(new Date(t).toISOString())} · ${agoDays(daysSince(t, now))}`;
+		age = t === null ? 'no tracking date' : `Last move ${dateShort(new Date(t).toISOString())} · ${agoDays(daysSince(t, now))}${isStuck(r, now, rules) ? ' · likely lost' : ''}`;
 	}
 	return { rto: r, bucket: b, value: num(r.order_value), when: ms(r.rto_delivered_at) ?? lastMove(r), ageText: age, href: trackingUrl(r), sheetOnly: isSheetOnly(r), nonDropy: isNonDropy(r) };
 }
@@ -513,7 +532,7 @@ export const ACTION_GROUPS: { key: ActionGroup; label: string }[] = [
 	{ key: 'followup', label: 'Claim follow-ups' },
 	{ key: 'notreceived', label: 'Not received' },
 	{ key: 'reship', label: 'Re-ships' },
-	{ key: 'lost', label: 'Lost / unknown' }
+	{ key: 'lost', label: 'Lost / stuck / unknown' }
 ];
 
 export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
@@ -524,6 +543,7 @@ export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
 		case 'reship_found':
 			return 'reship';
 		case 'lost':
+		case 'stuck':
 		case 'unknown':
 			return 'lost';
 		default:
@@ -538,6 +558,7 @@ export function actionWhat(i: ActionItem): string {
 		case 'credit_due': return 'Credit note due';
 		case 'reship_found': return `Re-shipped as #${i.rto?.reship_order_no ?? ''}?`;
 		case 'lost': return 'Marked lost';
+		case 'stuck': return 'Likely lost';
 		case 'unknown': return 'Unknown parcel';
 		default: return 'Not received';
 	}

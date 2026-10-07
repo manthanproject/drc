@@ -14,7 +14,7 @@ const LAST = ['Sharma', 'Patel', 'Iyer', 'Khan', 'Reddy', 'Mehta', 'Nair', 'Gupt
 const CARRIERS = [['DTDC', () => `7D14${Math.floor(1e7 + rnd() * 9e7)}`], ['Delhivery', () => `3481${Math.floor(1e9 + rnd() * 9e9)}`], ['Shadowfax', () => `SF${Math.floor(1e9 + rnd() * 9e9)}VEL`]];
 
 let id = 0;
-let used = new Set([2529, 3315, 2765, 3048, 3536, 4024, 2731, 3544, 3946, 2876, 2951, 2954, 1098, 1032, 3479, 3082, 3673, 4301]);
+let used = new Set([1146, 1595, 2529, 3315, 2765, 3048, 3536, 4024, 2731, 3544, 3946, 2876, 2951, 2954, 1098, 1032, 3479, 3082, 3673, 4301]);
 const orderNo = () => { let n; do n = 1100 + Math.floor(rnd() * 3700); while (used.has(n)); used.add(n); return String(n); };
 const rows = [];
 function add(p) {
@@ -70,6 +70,9 @@ for (const [stage, n] of Object.entries(staff)) {
 			...(legacy ? { courier: null, carrier_name: null, forward_awb: null, legacy_source: 'sheet' } : {}) });
 	}
 }
+// Phase 4: long-stuck parcels coming back (no tracking movement for weeks)
+add({ order_no: '1146', order_value: 3250, carrier_name: 'DTDC Standard', courier_status: 'rto_in_transit', last_movement_at: iso(91), last_event_at: iso(91), last_event_text: 'RTO In Transit', last_event_location: 'DELHI HUB , DELHI' });
+add({ order_no: '1595', order_value: 2140, carrier_name: 'Delhivery', courier_status: 'rto_in_transit', last_movement_at: iso(42), last_event_at: iso(42), last_event_text: 'Bag Received at Facility', last_event_location: 'Bhiwandi_Mankoli_HB' });
 add({ stage: 'lost', courier_status: 'lost', order_no: '3082', order_value: 3977, carrier_name: 'Delhivery', forward_awb: '38539512054802', last_movement_at: iso(19), last_event_at: iso(19) });
 
 // one "Arrived, not scanned" RTO that the hourly check found re-shipped (Phase 3a)
@@ -87,7 +90,7 @@ for (const [o, at] of [['2731', '2026-10-04T19:55:03.252+05:30'], ['3536', '2026
 }
 
 const settings = [
-	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 },
+	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 }, { key: 'stuck_days', value: 7 },
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
 ];
 const rtoItems = rows.map((r, i) => ({ id: `item-${i}`, rto_id: r.id, sku: `SKU-${r.order_no}`, title: `Item of #${r.order_no}`, qty: 1, is_gift: false, ready_stock_state: 'na' }));
@@ -104,7 +107,7 @@ for (const r of rows) r.amount_collected = r.payment_mode === 'prepaid' ? r.orde
 for (const r of rows) Object.assign(r, { callback_attempts: 0, refund_state: r.refund_state ?? 'na', scanned_at: null, reship_state: r.reship_state ?? 'none' });
 settings.push({ key: 'max_call_attempts', value: 3 });
 const events = [];
-const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `00000000-0000-0000-0000-c0000000000${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', channel: 'support_ticket', ticket_ref: null, claimed_amount: r.order_value, description: null, created_at: r.disputes[0].raised_at, deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
+const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `00000000-0000-0000-0000-c0000000000${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', channel: 'panel_dispute', ticket_ref: null, claimed_amount: r.order_value, description: null, created_at: r.disputes[0].raised_at, deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
 // Phase 3c: #3379 on Hold (wrong product received), partial COD with Velocity's "Pay on Delivery" dummy line
 { const r = rows.find((x) => x.stage === 'hold' && x.forward_awb);
   Object.assign(r, { order_no: '3379', order_value: 3100, payment_mode: 'partial', amount_collected: 806, carrier_name: 'DTDC', forward_awb: '7D139900001', rto_delivered_at: new Date(NOW - 3 * DAY).toISOString(), notes: '[06 Oct] Wrong product received' });
@@ -215,10 +218,44 @@ function mockClaimAction({ p_claim, p_action, p_args = {} }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim_raised', from: r.stage, to: r.stage, before: { stage: r.stage }, claim: { op: 'raise', id: c.id, claim_before }, args: { ticket_ref: p_args.ticket_ref ?? null } } });
 	return [200, { event_id: id, claim_id: c.id, status: 'raised' }];
 }
+function mockTicket({ p_args: a }) {
+	const ref0 = String(a.ticket_ref ?? '').trim().replace(/^#\s*/, '');
+	if (!ref0) return [400, { message: 'DRC_TICKET_REF_REQUIRED' }];
+	const ref = /^\d+$/.test(ref0) ? `#${ref0}` : ref0;
+	const list = (a.rto_ids ?? []).map((id) => rows.find((x) => x.id === id));
+	if (!list.length) return [400, { message: 'DRC_NO_PARCELS' }];
+	if (list.some((r) => !r)) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (new Set(list.map((r) => r.courier)).size > 1) return [400, { message: 'DRC_MIXED_COURIER' }];
+	const busy = list.find((r) => claims.some((c) => c.rto_id === r.id && !['closed', 'rejected'].includes(c.status)));
+	if (busy) return [400, { message: `DRC_HAS_CLAIM ${busy.order_no}` }];
+	const at = a.raised_on && a.raised_on < new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10) ? `${a.raised_on}T06:30:00Z` : new Date().toISOString();
+	const batch = `b${++eventId}`;
+	let first = null;
+	for (const r of list) {
+		const reason = r.stage === 'awaiting_receipt' ? 'mdnd' : 'lost';
+		const cid = `00000000-0000-0000-0000-c${String(++eventId).padStart(11, '0')}`;
+		claims.unshift({ id: cid, rto_id: r.id, reason, status: 'raised', channel: 'support_ticket', ticket_ref: ref, ticket_url: /^#\d+$/.test(ref) ? `https://shipfast.freshdesk.com/support/tickets/${ref.slice(1)}` : null, claimed_amount: r.order_value, description: a.description ?? null, created_at: new Date().toISOString(), deadline_at: null, approved_at: null, raised_at: at });
+		claimMoney.push({ claim_id: cid, outstanding: r.order_value });
+		const id = ++eventId;
+		first ??= id;
+		events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'ticket_raised', from: r.stage, to: r.stage, batch, before: { stage: r.stage }, claim: { op: 'ticket', id: cid, reason }, args: { ticket_ref: ref, reason, parcels: list.length } } });
+	}
+	return [200, { event_id: first, batch, n: list.length, ticket_ref: ref, courier: list[0].courier }];
+}
 function mockUndo({ p_event }) {
 	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
 	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
 	if (e.payload.undone) return [400, { message: 'DRC_ALREADY_UNDONE' }];
+	if (e.payload.batch) {
+		const sib = events.filter((x) => x.kind === 'stage_change' && x.payload.batch === e.payload.batch && !x.payload.undone);
+		for (const x of sib) {
+			const i = claims.findIndex((c) => c.id === x.payload.claim.id);
+			if (i >= 0) claims.splice(i, 1);
+			x.payload.undone = true;
+			events.unshift({ id: ++eventId, source: 'user', rto_id: x.rto_id, kind: 'undo', received_at: new Date().toISOString(), payload: { undid: x.id, restored_stage: x.payload.before.stage } });
+		}
+		return [200, { rto_id: e.rto_id, stage: e.payload.before.stage, n: sib.length }];
+	}
 	const r = rows.find((x) => x.id === e.rto_id);
 	const cl = e.payload.claim;
 	if (cl?.op === 'create') {
@@ -263,8 +300,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

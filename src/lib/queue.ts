@@ -7,7 +7,9 @@ export interface QueueClaim {
 	rto_id: string;
 	reason: string;
 	status: string;
+	channel?: string | null;
 	ticket_ref: string | null;
+	ticket_url?: string | null;
 	claimed_amount: number | string;
 	deadline_at: string | null;
 	raised_at: string | null;
@@ -77,11 +79,14 @@ export function buildQueue(
 				pill: needsMedia ? { label: `Media ${m} of 4`, tone: 'warn' } : { label: 'Ready', tone: 'ok' }
 			});
 		} else if (OPEN.has(c.status)) {
-			const d = latestDispute(r);
+			const ticket = c.channel === 'support_ticket';
+			// a courier ticket is not a panel dispute: its status is DRC's, not Velocity's dispute tab
+			const d = ticket ? null : latestDispute(r);
 			const st = d ? disputeStatus(d.status) : claimStatus(c.status);
+			const why = ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : 'Lost, ticket') : claimReasonLabel(c.reason);
 			raised.push({
 				key: `c-${c.id}`, kind: 'raised', rtoId: r.id, claimId: c.id, label: orderLabel(r), amount, deadline, raisedAt: ms(c.raised_at),
-				sub: `${claimReasonLabel(c.reason)} · ${c.raised_at ? `raised ${dateShort(c.raised_at)}` : 'raised'}${c.ticket_ref ? ` · ${c.ticket_ref}` : ''}`,
+				sub: `${why} · ${c.raised_at ? `raised ${dateShort(c.raised_at)}` : 'raised'}${c.ticket_ref ? ` · ${c.ticket_ref}` : ''}`,
 				pill: { label: st.label, tone: st.tone as Tone }
 			});
 		}

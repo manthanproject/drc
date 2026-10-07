@@ -1,0 +1,1481 @@
+From 40b523bdc4392cc6d7b6ed4fa2e73a04004b81a0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 7 Oct 2026 12:09:21 +0000
+Subject: [PATCH] =?UTF-8?q?4:=20auto-flags=20=E2=80=94=20likely=20lost=20(?=
+ =?UTF-8?q?7=20d=20no=20movement),=20courier=20tickets=20for=20stuck/lost/?=
+ =?UTF-8?q?old=20not-received?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 0010: stuck_days setting, raise_ticket() (one support-ticket claim per parcel, stage unchanged,
+  back-datable), undo v4 (a ticket undoes as a whole)
+- Claims: Tickets to raise list, combined ticket draft (subject + description), Mark raised
+- Needs action: 'Likely lost' items; parcels already on a ticket are not asked about again
+- Ticket claims shown as courier tickets (Freshdesk link) on Claims and the RTO page
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01K13NmvjZWPtkL5p5FWhzdE
+---
+ dev/mock-supabase.mjs                 |  47 +++++-
+ package.json                          |   2 +-
+ src/lib/components/ClaimCard.svelte   |  29 +++-
+ src/lib/components/TicketDraft.svelte | 146 ++++++++++++++++
+ src/lib/dashboard.ts                  |  33 +++-
+ src/lib/history.ts                    |   4 +
+ src/lib/queue.ts                      |   9 +-
+ src/lib/server/actions.ts             |   6 +
+ src/lib/server/queue.ts               |   8 +-
+ src/lib/server/rto-data.ts            |   7 +-
+ src/lib/server/rto-detail.ts          |   3 +-
+ src/lib/server/tickets.ts             |  20 +++
+ src/lib/tickets.ts                    | 179 ++++++++++++++++++++
+ src/routes/api/ticket/+server.ts      |  10 ++
+ src/routes/claims/+page.svelte        |  86 +++++++++-
+ supabase/migrations/0010_tickets.sql  | 232 ++++++++++++++++++++++++++
+ tests/sql/0010_test.sql               |  71 ++++++++
+ tests/tickets.test.ts                 | 132 +++++++++++++++
+ 18 files changed, 994 insertions(+), 30 deletions(-)
+ create mode 100644 src/lib/components/TicketDraft.svelte
+ create mode 100644 src/lib/server/tickets.ts
+ create mode 100644 src/lib/tickets.ts
+ create mode 100644 src/routes/api/ticket/+server.ts
+ create mode 100644 supabase/migrations/0010_tickets.sql
+ create mode 100644 tests/sql/0010_test.sql
+ create mode 100644 tests/tickets.test.ts
+
+diff --git a/dev/mock-supabase.mjs b/dev/mock-supabase.mjs
+index 34e6e59..2b1e0b9 100644
+--- a/dev/mock-supabase.mjs
++++ b/dev/mock-supabase.mjs
+@@ -14,7 +14,7 @@ const LAST = ['Sharma', 'Patel', 'Iyer', 'Khan', 'Reddy', 'Mehta', 'Nair', 'Gupt
+ const CARRIERS = [['DTDC', () => `7D14${Math.floor(1e7 + rnd() * 9e7)}`], ['Delhivery', () => `3481${Math.floor(1e9 + rnd() * 9e9)}`], ['Shadowfax', () => `SF${Math.floor(1e9 + rnd() * 9e9)}VEL`]];
+ 
+ let id = 0;
+-let used = new Set([2529, 3315, 2765, 3048, 3536, 4024, 2731, 3544, 3946, 2876, 2951, 2954, 1098, 1032, 3479, 3082, 3673, 4301]);
++let used = new Set([1146, 1595, 2529, 3315, 2765, 3048, 3536, 4024, 2731, 3544, 3946, 2876, 2951, 2954, 1098, 1032, 3479, 3082, 3673, 4301]);
+ const orderNo = () => { let n; do n = 1100 + Math.floor(rnd() * 3700); while (used.has(n)); used.add(n); return String(n); };
+ const rows = [];
+ function add(p) {
+@@ -70,6 +70,9 @@ for (const [stage, n] of Object.entries(staff)) {
+ 			...(legacy ? { courier: null, carrier_name: null, forward_awb: null, legacy_source: 'sheet' } : {}) });
+ 	}
+ }
++// Phase 4: long-stuck parcels coming back (no tracking movement for weeks)
++add({ order_no: '1146', order_value: 3250, carrier_name: 'DTDC Standard', courier_status: 'rto_in_transit', last_movement_at: iso(91), last_event_at: iso(91), last_event_text: 'RTO In Transit', last_event_location: 'DELHI HUB , DELHI' });
++add({ order_no: '1595', order_value: 2140, carrier_name: 'Delhivery', courier_status: 'rto_in_transit', last_movement_at: iso(42), last_event_at: iso(42), last_event_text: 'Bag Received at Facility', last_event_location: 'Bhiwandi_Mankoli_HB' });
+ add({ stage: 'lost', courier_status: 'lost', order_no: '3082', order_value: 3977, carrier_name: 'Delhivery', forward_awb: '38539512054802', last_movement_at: iso(19), last_event_at: iso(19) });
+ 
+ // one "Arrived, not scanned" RTO that the hourly check found re-shipped (Phase 3a)
+@@ -87,7 +90,7 @@ for (const [o, at] of [['2731', '2026-10-04T19:55:03.252+05:30'], ['3536', '2026
+ }
+ 
+ const settings = [
+-	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 },
++	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 }, { key: 'stuck_days', value: 7 },
+ 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
+ ];
+ const rtoItems = rows.map((r, i) => ({ id: `item-${i}`, rto_id: r.id, sku: `SKU-${r.order_no}`, title: `Item of #${r.order_no}`, qty: 1, is_gift: false, ready_stock_state: 'na' }));
+@@ -104,7 +107,7 @@ for (const r of rows) r.amount_collected = r.payment_mode === 'prepaid' ? r.orde
+ for (const r of rows) Object.assign(r, { callback_attempts: 0, refund_state: r.refund_state ?? 'na', scanned_at: null, reship_state: r.reship_state ?? 'none' });
+ settings.push({ key: 'max_call_attempts', value: 3 });
+ const events = [];
+-const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `00000000-0000-0000-0000-c0000000000${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', channel: 'support_ticket', ticket_ref: null, claimed_amount: r.order_value, description: null, created_at: r.disputes[0].raised_at, deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
++const claims = rows.filter((r) => r.disputes).map((r, i) => ({ id: `00000000-0000-0000-0000-c0000000000${i}`, rto_id: r.id, reason: 'mdnd', status: 'raised', channel: 'panel_dispute', ticket_ref: null, claimed_amount: r.order_value, description: null, created_at: r.disputes[0].raised_at, deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: r.disputes[0].raised_at }));
+ // Phase 3c: #3379 on Hold (wrong product received), partial COD with Velocity's "Pay on Delivery" dummy line
+ { const r = rows.find((x) => x.stage === 'hold' && x.forward_awb);
+   Object.assign(r, { order_no: '3379', order_value: 3100, payment_mode: 'partial', amount_collected: 806, carrier_name: 'DTDC', forward_awb: '7D139900001', rto_delivered_at: new Date(NOW - 3 * DAY).toISOString(), notes: '[06 Oct] Wrong product received' });
+@@ -215,10 +218,44 @@ function mockClaimAction({ p_claim, p_action, p_args = {} }) {
+ 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'claim_raised', from: r.stage, to: r.stage, before: { stage: r.stage }, claim: { op: 'raise', id: c.id, claim_before }, args: { ticket_ref: p_args.ticket_ref ?? null } } });
+ 	return [200, { event_id: id, claim_id: c.id, status: 'raised' }];
+ }
++function mockTicket({ p_args: a }) {
++	const ref0 = String(a.ticket_ref ?? '').trim().replace(/^#\s*/, '');
++	if (!ref0) return [400, { message: 'DRC_TICKET_REF_REQUIRED' }];
++	const ref = /^\d+$/.test(ref0) ? `#${ref0}` : ref0;
++	const list = (a.rto_ids ?? []).map((id) => rows.find((x) => x.id === id));
++	if (!list.length) return [400, { message: 'DRC_NO_PARCELS' }];
++	if (list.some((r) => !r)) return [400, { message: 'DRC_NOT_FOUND' }];
++	if (new Set(list.map((r) => r.courier)).size > 1) return [400, { message: 'DRC_MIXED_COURIER' }];
++	const busy = list.find((r) => claims.some((c) => c.rto_id === r.id && !['closed', 'rejected'].includes(c.status)));
++	if (busy) return [400, { message: `DRC_HAS_CLAIM ${busy.order_no}` }];
++	const at = a.raised_on && a.raised_on < new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10) ? `${a.raised_on}T06:30:00Z` : new Date().toISOString();
++	const batch = `b${++eventId}`;
++	let first = null;
++	for (const r of list) {
++		const reason = r.stage === 'awaiting_receipt' ? 'mdnd' : 'lost';
++		const cid = `00000000-0000-0000-0000-c${String(++eventId).padStart(11, '0')}`;
++		claims.unshift({ id: cid, rto_id: r.id, reason, status: 'raised', channel: 'support_ticket', ticket_ref: ref, ticket_url: /^#\d+$/.test(ref) ? `https://shipfast.freshdesk.com/support/tickets/${ref.slice(1)}` : null, claimed_amount: r.order_value, description: a.description ?? null, created_at: new Date().toISOString(), deadline_at: null, approved_at: null, raised_at: at });
++		claimMoney.push({ claim_id: cid, outstanding: r.order_value });
++		const id = ++eventId;
++		first ??= id;
++		events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'ticket_raised', from: r.stage, to: r.stage, batch, before: { stage: r.stage }, claim: { op: 'ticket', id: cid, reason }, args: { ticket_ref: ref, reason, parcels: list.length } } });
++	}
++	return [200, { event_id: first, batch, n: list.length, ticket_ref: ref, courier: list[0].courier }];
++}
+ function mockUndo({ p_event }) {
+ 	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
+ 	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
+ 	if (e.payload.undone) return [400, { message: 'DRC_ALREADY_UNDONE' }];
++	if (e.payload.batch) {
++		const sib = events.filter((x) => x.kind === 'stage_change' && x.payload.batch === e.payload.batch && !x.payload.undone);
++		for (const x of sib) {
++			const i = claims.findIndex((c) => c.id === x.payload.claim.id);
++			if (i >= 0) claims.splice(i, 1);
++			x.payload.undone = true;
++			events.unshift({ id: ++eventId, source: 'user', rto_id: x.rto_id, kind: 'undo', received_at: new Date().toISOString(), payload: { undid: x.id, restored_stage: x.payload.before.stage } });
++		}
++		return [200, { rto_id: e.rto_id, stage: e.payload.before.stage, n: sib.length }];
++	}
+ 	const r = rows.find((x) => x.id === e.rto_id);
+ 	const cl = e.payload.claim;
+ 	if (cl?.op === 'create') {
+@@ -263,8 +300,8 @@ http.createServer(async (req, res) => {
+ 		const fn = u.pathname.split('/').pop();
+ 		const args = JSON.parse(body || '{}');
+ 		rpcLog.push({ fn, args });
+-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action'].includes(fn)) {
+-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock }[fn](args);
++		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket'].includes(fn)) {
++			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket }[fn](args);
+ 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
+ 			return;
+ 		}
+diff --git a/package.json b/package.json
+index d701bfe..06bbf28 100644
+--- a/package.json
++++ b/package.json
+@@ -10,7 +10,7 @@
+ 		"prepare": "svelte-kit sync || echo ''",
+ 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+ 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+-		"test": "node --experimental-strip-types --test tests/dashboard.test.ts tests/reship.test.ts tests/scan.test.ts tests/products.test.ts tests/messages.test.ts tests/scanlog.test.ts tests/claims.test.ts tests/queue.test.ts tests/stock.test.ts"
++		"test": "node --experimental-strip-types --test tests/dashboard.test.ts tests/reship.test.ts tests/scan.test.ts tests/products.test.ts tests/messages.test.ts tests/scanlog.test.ts tests/claims.test.ts tests/queue.test.ts tests/stock.test.ts tests/tickets.test.ts"
+ 	},
+ 	"devDependencies": {
+ 		"@sveltejs/adapter-vercel": "^7.0.0",
+diff --git a/src/lib/components/ClaimCard.svelte b/src/lib/components/ClaimCard.svelte
+index 913b24d..728c0f7 100644
+--- a/src/lib/components/ClaimCard.svelte
++++ b/src/lib/components/ClaimCard.svelte
+@@ -3,7 +3,7 @@
+ 	import { dateShort, inr, num } from '#lib/dashboard.ts';
+ 	import { istTime } from '#lib/scanlog.ts';
+ 
+-	interface ClaimRow { id: string; reason: string; status: string; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string }
++	interface ClaimRow { id: string; reason: string; status: string; channel?: string | null; ticket_url?: string | null; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string }
+ 	interface MediaRow { id: string; kind: string; drive_file_id: string }
+ 	let {
+ 		claim,
+@@ -28,6 +28,7 @@
+ 	const st = $derived(claimStatus(claim.status));
+ 	const vType = $derived(velocityDisputeType(claim.reason));
+ 	const draft = $derived(claim.status === 'draft');
++	const ticket = $derived(claim.channel === 'support_ticket');
+ 	const byKind = (k: string) => media.find((m) => m.kind === k);
+ 	const photos = $derived(['front', 'back', 'label'].map((k) => [k, byKind(k)] as const).filter(([, m]) => !!m));
+ 	const orderName = $derived(/^\d+(-\d+)*$/.test(orderNo ?? '') ? `#Dropy-${orderNo}` : orderNo ?? '');
+@@ -70,6 +71,28 @@
+ 	}
+ </script>
+ 
++{#if ticket}
++<div class="card claim">
++	<div class="head">
++		<b>Courier ticket · {claim.reason === 'mdnd' ? 'Not received' : 'Lost or stuck'}</b>
++		<span class="pill p-{st.tone}">{st.label}</span>
++	</div>
++	<p class="small muted meta">
++		{inr(num(claim.claimed_amount))} (full order) ·
++		{#if claim.raised_at}Raised {dateShort(claim.raised_at)}{/if}
++		{#if claim.ticket_ref} · {#if claim.ticket_url}<a class="tref" href={claim.ticket_url} target="_blank" rel="noopener noreferrer">ticket {claim.ticket_ref} ↗</a>{:else}ticket {claim.ticket_ref}{/if}{/if}
++	</p>
++	<p class="small tnote">Follow up in the ticket. If the parcel turns up, scan it in as usual.</p>
++	{#if claim.description}
++		<details>
++			<summary class="small">Ticket text</summary>
++			<pre class="tt">{claim.description}</pre>
++			<button class="go" onclick={() => copy(claim.description ?? '', 'text')}>{copied === 'text' ? 'Copied ✓' : 'Copy text'}</button>
++		</details>
++	{/if}
++	{#if err}<p class="err" role="alert">{err}</p>{/if}
++</div>
++{:else}
+ <div class="card claim">
+ 	<div class="head">
+ 		<b>RTO claim · {claimReasonLabel(claim.reason)}</b>
+@@ -142,6 +165,7 @@
+ 	</details>
+ 	{#if err}<p class="err" role="alert">{err}</p>{/if}
+ </div>
++{/if}
+ 
+ <style>
+ 	.claim { border-color: var(--bad); }
+@@ -170,5 +194,8 @@
+ 	.files .links a { text-transform: capitalize; }
+ 	input { height: 42px; flex: 1; min-width: 140px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; font-size: 14px; }
+ 	.sr { position: absolute; left: -9999px; }
++	.tref { color: var(--acc); font-weight: 700; }
++	.tnote { margin: 0 0 4px; }
++	.tt { white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 1.5; background: var(--sunk); border-radius: 12px; padding: 10px 12px; margin: 6px 0 8px; max-height: 320px; overflow: auto; }
+ 	.err { color: var(--bad); font-weight: 600; font-size: 13px; margin: 6px 0 0; }
+ </style>
+diff --git a/src/lib/components/TicketDraft.svelte b/src/lib/components/TicketDraft.svelte
+new file mode 100644
+index 0000000..d507ba9
+--- /dev/null
++++ b/src/lib/components/TicketDraft.svelte
+@@ -0,0 +1,146 @@
++<script lang="ts">
++	import { inr } from '#lib/dashboard.ts';
++	import { ticketText, cleanTicketRef, COURIER_NAME, FRESHDESK_NEW, type TicketRow } from '#lib/tickets.ts';
++
++	let {
++		rows,
++		stuckDays,
++		onraised
++	}: { rows: TicketRow[]; stuckDays: number; onraised: (eventId: number, n: number, ref: string) => void } = $props();
++
++	const todayIst = () => new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
++
++	let subject = $state('');
++	let body = $state('');
++	let ref = $state('');
++	let raisedOn = $state(todayIst());
++	let busy = $state(false);
++	let err = $state('');
++	let copied = $state<'' | 'subject' | 'body'>('');
++
++	// a new tick list rewrites the text (edits are for the final paste)
++	const key = $derived(rows.map((r) => r.rtoId).join(','));
++	$effect.pre(() => {
++		void key;
++		const t = ticketText(rows, stuckDays);
++		subject = t.subject;
++		body = t.body;
++		err = '';
++	});
++
++	const courier = $derived(rows[0]?.courier ?? 'velocity');
++	const total = $derived(rows.reduce((s, r) => s + r.amount, 0));
++	const cleanRef = $derived(cleanTicketRef(ref));
++
++	async function copy(value: string, what: 'subject' | 'body') {
++		try {
++			await navigator.clipboard.writeText(value);
++			copied = what;
++			setTimeout(() => copied === what && (copied = ''), 2500);
++		} catch {
++			err = 'Copy blocked by the browser: select the text and copy it by hand.';
++		}
++	}
++
++	async function markRaised() {
++		if (busy || !cleanRef || !rows.length) return;
++		busy = true;
++		err = '';
++		try {
++			const r = await fetch('/api/ticket', {
++				method: 'POST',
++				headers: { 'content-type': 'application/json' },
++				body: JSON.stringify({ rto_ids: rows.map((x) => x.rtoId), ticket_ref: cleanRef, raised_on: raisedOn, description: `${subject}\n\n${body}` })
++			});
++			const b = await r.json().catch(() => ({}));
++			if (!r.ok) {
++				err = b?.message ?? `Could not save (${r.status})`;
++				return;
++			}
++			ref = '';
++			onraised(b.event_id, b.n, b.ticket_ref);
++		} catch {
++			err = 'No connection. Nothing saved.';
++		} finally {
++			busy = false;
++		}
++	}
++</script>
++
++<div class="card tk">
++	<div class="mh">
++		<b>{COURIER_NAME[courier] ?? courier} ticket · {rows.length} parcel{rows.length > 1 ? 's' : ''}</b>
++		<b class="money">{inr(total)}</b>
++	</div>
++	<ol class="steps">
++		<li>
++			<span class="n">1</span>
++			<div class="sb">
++				<b>Open a new support ticket</b>
++				{#if courier === 'velocity'}
++					<div class="row"><a class="go dark" href={FRESHDESK_NEW} target="_blank" rel="noopener noreferrer">Open Velocity support ↗</a><span class="small muted">or Help in the Velocity panel</span></div>
++				{:else}
++					<span class="small muted">Shiprocket → Help &amp; Support → new ticket</span>
++				{/if}
++			</div>
++		</li>
++		<li>
++			<span class="n">2</span>
++			<div class="sb">
++				<label for="tk-sub"><b>Subject</b></label>
++				<input id="tk-sub" bind:value={subject} maxlength="250" />
++				<div class="row"><button class="go" onclick={() => copy(subject, 'subject')}>{copied === 'subject' ? 'Copied ✓' : 'Copy subject'}</button></div>
++			</div>
++		</li>
++		<li>
++			<span class="n">3</span>
++			<div class="sb">
++				<label for="tk-body"><b>Description</b></label>
++				<textarea id="tk-body" rows="14" bind:value={body}></textarea>
++				<div class="row">
++					<button class="go accb" disabled={!body.trim()} onclick={() => copy(body, 'body')}>{copied === 'body' ? 'Copied ✓' : 'Copy description'}</button>
++					<span class="small muted">Editable before copying</span>
++				</div>
++			</div>
++		</li>
++		<li>
++			<span class="n">4</span>
++			<div class="sb">
++				<b>Mark raised</b>
++				<div class="row">
++					<label class="sr" for="tk-ref">Ticket number</label>
++					<input id="tk-ref" bind:value={ref} maxlength="40" inputmode="text" placeholder="Ticket no., e.g. 106373" />
++					<label class="sr" for="tk-on">Raised on</label>
++					<input id="tk-on" class="date" type="date" bind:value={raisedOn} max={todayIst()} />
++				</div>
++				<button class="go accb wide" disabled={busy || !cleanRef} onclick={markRaised}>
++					{busy ? 'Saving…' : `✓ Mark raised on ${rows.length} parcel${rows.length > 1 ? 's' : ''}`}
++				</button>
++				<span class="small muted">Raised before DRC (like #106373)? Tick those parcels, type that ticket no. and the day it was raised.</span>
++			</div>
++		</li>
++	</ol>
++	{#if err}<p class="err" role="alert">{err}</p>{/if}
++</div>
++
++<style>
++	.tk { border-color: var(--acc); }
++	.tk :global(*) { box-sizing: border-box; }
++	.mh { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
++	.steps { list-style: none; margin: 6px 0 0; padding: 0; }
++	.steps li { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
++	.n { width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-size: 12.5px; font-weight: 700; }
++	.sb { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
++	.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
++	.go { min-height: 42px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
++	.go:disabled { opacity: 0.55; cursor: default; }
++	.dark { background: var(--ink); border-color: var(--ink); color: var(--bg); }
++	.accb { background: var(--acc); border-color: var(--acc); color: #fff; }
++	.wide { width: 100%; min-height: 48px; font-size: 15px; }
++	textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 10px 12px; font-size: 13px; line-height: 1.5; resize: vertical; }
++	input { height: 42px; width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; font-size: 14px; }
++	.row input { flex: 1; min-width: 150px; width: auto; }
++	.row input.date { flex: 0 0 auto; min-width: 0; width: 160px; }
++	.sr { position: absolute; left: -9999px; }
++	.err { color: var(--bad); font-weight: 600; font-size: 13px; margin: 6px 0 0; }
++</style>
+diff --git a/src/lib/dashboard.ts b/src/lib/dashboard.ts
+index 0be7b60..00fde73 100644
+--- a/src/lib/dashboard.ts
++++ b/src/lib/dashboard.ts
+@@ -36,6 +36,8 @@ export interface Rto {
+ 	scanned_at?: string | null;
+ 	media_folder_id?: string | null;
+ 	refund_state?: string | null;
++	last_event_text?: string | null;
++	last_event_location?: string | null;
+ }
+ 
+ /** One Velocity dispute as the API returns it (seen 6 Oct: status 'raised' = "In Review" in the panel). */
+@@ -99,9 +101,11 @@ export interface Rules {
+ 	mdndHours: number;
+ 	delayedDays: number;
+ 	windowDays: number;
++	/** Coming back with no movement this long = "Likely lost" → courier ticket (Phase 4). */
++	stuckDays: number;
+ }
+ 
+-export const DEFAULT_RULES: Rules = { mdndHours: 48, delayedDays: 3, windowDays: 7 };
++export const DEFAULT_RULES: Rules = { mdndHours: 48, delayedDays: 3, windowDays: 7, stuckDays: 7 };
+ 
+ export const num = (v: unknown): number => {
+ 	const n = typeof v === 'number' ? v : Number(v ?? 0);
+@@ -172,6 +176,13 @@ export function isDelayed(r: Rto, now: number, rules: Rules): boolean {
+ 	return t !== null && now - t >= rules.delayedDays * DAY;
+ }
+ 
++/** Coming back with no tracking movement for stuckDays+ (no date = can't tell, never flagged). */
++export function isStuck(r: Rto, now: number, rules: Rules): boolean {
++	if (r.stage !== 'in_flight' && r.stage !== 'delayed') return false;
++	const t = lastMove(r);
++	return t !== null && now - t >= rules.stuckDays * DAY;
++}
++
+ /** Every RTO lands in exactly one bucket. */
+ export function bucketOf(r: Rto, now: number, rules: Rules): BucketKey {
+ 	switch (r.stage) {
+@@ -208,7 +219,7 @@ const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated
+ 
+ // ---------- needs action ----------
+ 
+-export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found';
++export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found';
+ 
+ export interface ActionItem {
+ 	key: string;
+@@ -240,7 +251,7 @@ function windowFields(deadline: number | null, now: number) {
+ const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Tone => {
+ 	if (i.kind === 'reship_found') return 'ok';
+ 	if (i.daysLeft !== null) return i.daysLeft <= 2 ? 'bad' : 'warn';
+-	if (i.kind === 'lost' || i.kind === 'unknown') return 'bad';
++	if (i.kind === 'lost' || i.kind === 'stuck' || i.kind === 'unknown') return 'bad';
+ 	if (i.windowClosed || i.kind === 'no_date') return 'mute';
+ 	return 'warn';
+ };
+@@ -248,11 +259,19 @@ const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Ton
+ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: number): ActionItem[] {
+ 	const out: ActionItem[] = [];
+ 	const byId = new Map(rtos.map((r) => [r.id, r]));
++	// a courier ticket (Phase 4) is an open claim on a parcel that keeps its stage: don't ask again
++	const claimed = new Set(claims.filter((c) => OPEN_CLAIM.has(c.status)).map((c) => c.rto_id));
+ 	const push = (i: Omit<ActionItem, 'tone' | 'href' | 'nonDropy'>) =>
+ 		out.push({ ...i, tone: toneFor(i), href: i.rto ? trackingUrl(i.rto) : null, nonDropy: i.rto ? isNonDropy(i.rto) : false });
+ 
+ 	for (const r of rtos) {
+-		if (r.stage === 'awaiting_receipt') {
++		if (claimed.has(r.id)) continue;
++		if (isStuck(r, now, rules)) {
++			const t = lastMove(r)!;
++			push({ key: `stuck-${r.id}`, kind: 'stuck', rto: r, title: `${orderLabel(r)} likely lost`,
++				detail: `No movement since ${dateShort(new Date(t).toISOString())}${r.last_event_text ? ` (${r.last_event_text})` : ''}, raise a ticket`,
++				amount: num(r.order_value), ageDays: daysSince(t, now), ...windowFields(null, now) });
++		} else if (r.stage === 'awaiting_receipt') {
+ 			const t = ms(r.rto_delivered_at);
+ 			if (r.reship_state === 'pending' && r.reship_order_no) {
+ 				// Probably received and re-shipped: one tap to confirm instead of an MDND claim
+@@ -430,7 +449,7 @@ export function rowFor(r: Rto, now: number, rules: Rules): ListRow {
+ 		age = t === null ? 'RTO delivered, no tracking date' : `RTO delivered ${dateShort(r.rto_delivered_at)} · ${agoDays(daysSince(t, now))}`;
+ 	} else {
+ 		const t = lastMove(r);
+-		age = t === null ? 'no tracking date' : `Last move ${dateShort(new Date(t).toISOString())} · ${agoDays(daysSince(t, now))}`;
++		age = t === null ? 'no tracking date' : `Last move ${dateShort(new Date(t).toISOString())} · ${agoDays(daysSince(t, now))}${isStuck(r, now, rules) ? ' · likely lost' : ''}`;
+ 	}
+ 	return { rto: r, bucket: b, value: num(r.order_value), when: ms(r.rto_delivered_at) ?? lastMove(r), ageText: age, href: trackingUrl(r), sheetOnly: isSheetOnly(r), nonDropy: isNonDropy(r) };
+ }
+@@ -513,7 +532,7 @@ export const ACTION_GROUPS: { key: ActionGroup; label: string }[] = [
+ 	{ key: 'followup', label: 'Claim follow-ups' },
+ 	{ key: 'notreceived', label: 'Not received' },
+ 	{ key: 'reship', label: 'Re-ships' },
+-	{ key: 'lost', label: 'Lost / unknown' }
++	{ key: 'lost', label: 'Lost / stuck / unknown' }
+ ];
+ 
+ export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
+@@ -524,6 +543,7 @@ export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
+ 		case 'reship_found':
+ 			return 'reship';
+ 		case 'lost':
++		case 'stuck':
+ 		case 'unknown':
+ 			return 'lost';
+ 		default:
+@@ -538,6 +558,7 @@ export function actionWhat(i: ActionItem): string {
+ 		case 'credit_due': return 'Credit note due';
+ 		case 'reship_found': return `Re-shipped as #${i.rto?.reship_order_no ?? ''}?`;
+ 		case 'lost': return 'Marked lost';
++		case 'stuck': return 'Likely lost';
+ 		case 'unknown': return 'Unknown parcel';
+ 		default: return 'Not received';
+ 	}
+diff --git a/src/lib/history.ts b/src/lib/history.ts
+index bf3e05a..5e8583f 100644
+--- a/src/lib/history.ts
++++ b/src/lib/history.ts
+@@ -38,6 +38,10 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
+ 			}
+ 			if (p.action === 'stock_reuse') text = `Re-used 1 × ${p.args?.item ?? 'item'}${p.args?.order_no ? ` in #${p.args.order_no}` : ''} (${p.args?.unit ?? '?'} of ${p.args?.qty ?? '?'})`;
+ 			if (p.action === 'money_done') text = p.args?.money === 'credit_done' ? 'Store credit given' : 'Refund done';
++			if (p.action === 'ticket_raised') {
++				const n = Number(p.args?.parcels ?? 1);
++				text = `Courier ticket ${p.args?.ticket_ref ?? ''} raised: ${p.args?.reason === 'mdnd' ? 'not received' : 'lost or stuck'}${n > 1 ? ` (${n} parcels on this ticket)` : ''}`;
++			}
+ 			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
+ 			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
+ 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;
+diff --git a/src/lib/queue.ts b/src/lib/queue.ts
+index 74c4de0..5ac8f21 100644
+--- a/src/lib/queue.ts
++++ b/src/lib/queue.ts
+@@ -7,7 +7,9 @@ export interface QueueClaim {
+ 	rto_id: string;
+ 	reason: string;
+ 	status: string;
++	channel?: string | null;
+ 	ticket_ref: string | null;
++	ticket_url?: string | null;
+ 	claimed_amount: number | string;
+ 	deadline_at: string | null;
+ 	raised_at: string | null;
+@@ -77,11 +79,14 @@ export function buildQueue(
+ 				pill: needsMedia ? { label: `Media ${m} of 4`, tone: 'warn' } : { label: 'Ready', tone: 'ok' }
+ 			});
+ 		} else if (OPEN.has(c.status)) {
+-			const d = latestDispute(r);
++			const ticket = c.channel === 'support_ticket';
++			// a courier ticket is not a panel dispute: its status is DRC's, not Velocity's dispute tab
++			const d = ticket ? null : latestDispute(r);
+ 			const st = d ? disputeStatus(d.status) : claimStatus(c.status);
++			const why = ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : 'Lost, ticket') : claimReasonLabel(c.reason);
+ 			raised.push({
+ 				key: `c-${c.id}`, kind: 'raised', rtoId: r.id, claimId: c.id, label: orderLabel(r), amount, deadline, raisedAt: ms(c.raised_at),
+-				sub: `${claimReasonLabel(c.reason)} · ${c.raised_at ? `raised ${dateShort(c.raised_at)}` : 'raised'}${c.ticket_ref ? ` · ${c.ticket_ref}` : ''}`,
++				sub: `${why} · ${c.raised_at ? `raised ${dateShort(c.raised_at)}` : 'raised'}${c.ticket_ref ? ` · ${c.ticket_ref}` : ''}`,
+ 				pill: { label: st.label, tone: st.tone as Tone }
+ 			});
+ 		}
+diff --git a/src/lib/server/actions.ts b/src/lib/server/actions.ts
+index 987d86b..e81f2ec 100644
+--- a/src/lib/server/actions.ts
++++ b/src/lib/server/actions.ts
+@@ -29,6 +29,12 @@ const MESSAGES: Record<string, [number, string]> = {
+ 	DRC_TEXT_REQUIRED: [400, 'Remarks are empty'],
+ 	DRC_NOT_IN_STOCK: [409, 'Nothing of this item is left in stock. Refresh the page'],
+ 	DRC_NOTHING_DUE: [409, 'Nothing is owed on this order any more. Refresh the page'],
++	DRC_TICKET_REF_REQUIRED: [400, 'Type the ticket number'],
++	DRC_NO_PARCELS: [400, 'Tick at least one parcel'],
++	DRC_MIXED_COURIER: [400, 'One ticket per courier: tick parcels of one courier only'],
++	DRC_HAS_CLAIM: [409, 'One of these parcels already has an open claim or ticket. Refresh the page'],
++	DRC_BAD_DATE: [400, 'Raised date must be today or earlier'],
++	DRC_TICKET_CHANGED: [409, 'The ticket was already updated, so it cannot be undone here'],
+ 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
+ };
+ 
+diff --git a/src/lib/server/queue.ts b/src/lib/server/queue.ts
+index 798e4d1..d26c9a6 100644
+--- a/src/lib/server/queue.ts
++++ b/src/lib/server/queue.ts
+@@ -2,8 +2,9 @@ import { db } from './supabase.ts';
+ import { allRtos, settings } from './rto-data.ts';
+ import { buildQueue, type QueueClaim } from '#lib/queue.ts';
+ import { EVIDENCE } from '#lib/claims.ts';
++import { buildTickets } from '#lib/tickets.ts';
+ 
+-const CLAIM_COLS = 'id, rto_id, reason, status, ticket_ref, claimed_amount, deadline_at, raised_at, description, created_at';
++const CLAIM_COLS = 'id, rto_id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, deadline_at, raised_at, description, created_at';
+ 
+ export interface PaneRto {
+ 	id: string;
+@@ -21,7 +22,7 @@ export interface PaneRto {
+ export async function loadQueue() {
+ 	const [rtos, c, s] = await Promise.all([
+ 		allRtos(),
+-		db().from('claims').select(CLAIM_COLS).in('status', ['draft', 'raised', 'waiting', 'escalated']),
++		db().from('claims').select(CLAIM_COLS).in('status', ['draft', 'raised', 'waiting', 'approved', 'escalated']),
+ 		settings()
+ 	]);
+ 	if (c.error) throw new Error(`claims: ${c.error.message}`);
+@@ -38,6 +39,7 @@ export async function loadQueue() {
+ 
+ 	const now = Date.now();
+ 	const queue = buildQueue(rtos, claims, counts, s.rules, now);
++	const tickets = buildTickets(rtos, claims, s.rules, now);
+ 	const want = new Set([...queue.toRaise, ...queue.raised].map((r) => r.rtoId));
+ 	const pane: Record<string, PaneRto> = {};
+ 	for (const r of rtos)
+@@ -46,5 +48,5 @@ export async function loadQueue() {
+ 				id: r.id, order_no: r.order_no, forward_awb: r.forward_awb, carrier_name: r.carrier_name, order_value: r.order_value,
+ 				payment_mode: r.payment_mode, rto_delivered_at: r.rto_delivered_at, media_folder_id: r.media_folder_id ?? null, customer_name: r.customer_name
+ 			};
+-	return { queue, claims, media, pane, now };
++	return { queue, tickets, stuckDays: s.rules.stuckDays, claims, media, pane, now };
+ }
+diff --git a/src/lib/server/rto-data.ts b/src/lib/server/rto-data.ts
+index b816d38..0765c08 100644
+--- a/src/lib/server/rto-data.ts
++++ b/src/lib/server/rto-data.ts
+@@ -3,7 +3,7 @@ import { DEFAULT_RULES, num, type Claim, type Rto, type Rules } from '#lib/dashb
+ 
+ const RTO_COLS =
+ 	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, amount_collected, ' +
+-	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, legacy_source, ' +
++	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, last_event_text, last_event_location, legacy_source, ' +
+ 	'reship_order_no, reship_awb, reship_created_at, reship_courier_status, reship_state, scanned_at, media_folder_id, refund_state, ' +
+ 	'disputes:courier_raw->shipment_disputes';
+ 
+@@ -36,7 +36,7 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync }>
+ 	const { data, error } = await db()
+ 		.from('settings')
+ 		.select('key, value')
+-		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'velocity_last_sync']);
++		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'stuck_days', 'velocity_last_sync']);
+ 	if (error) throw new Error(`settings: ${error.message}`);
+ 	const get = (k: string) => data?.find((s) => s.key === k)?.value;
+ 	const pos = (v: unknown, d: number) => (num(v) > 0 ? num(v) : d);
+@@ -44,7 +44,8 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync }>
+ 		rules: {
+ 			mdndHours: pos(get('mdnd_hours'), DEFAULT_RULES.mdndHours),
+ 			delayedDays: pos(get('delayed_days'), DEFAULT_RULES.delayedDays),
+-			windowDays: pos(get('dispute_window_days'), DEFAULT_RULES.windowDays)
++			windowDays: pos(get('dispute_window_days'), DEFAULT_RULES.windowDays),
++			stuckDays: pos(get('stuck_days'), DEFAULT_RULES.stuckDays)
+ 		},
+ 		lastSync: (get('velocity_last_sync') as LastSync) ?? null
+ 	};
+diff --git a/src/lib/server/rto-detail.ts b/src/lib/server/rto-detail.ts
+index a72b045..1258ae9 100644
+--- a/src/lib/server/rto-detail.ts
++++ b/src/lib/server/rto-detail.ts
+@@ -41,6 +41,7 @@ export interface ClaimRow {
+ 	reason: string;
+ 	status: string;
+ 	channel: string;
++	ticket_url?: string | null;
+ 	ticket_ref: string | null;
+ 	claimed_amount: number | string;
+ 	deadline_at: string | null;
+@@ -66,7 +67,7 @@ export async function getRtoDetail(id: string) {
+ 		db().from('rtos').select(COLS).eq('id', id).maybeSingle(),
+ 		db().from('rto_items').select('id, sku, title, qty, is_gift, ready_stock_state, condition').eq('rto_id', id).order('is_gift').order('title'),
+ 		db().from('events').select('id, source, kind, payload, received_at').eq('rto_id', id).order('id', { ascending: false }).limit(40),
+-		db().from('claims').select('id, reason, status, channel, ticket_ref, claimed_amount, deadline_at, raised_at, description, created_at').eq('rto_id', id).order('created_at', { ascending: false }),
++		db().from('claims').select('id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, deadline_at, raised_at, description, created_at').eq('rto_id', id).order('created_at', { ascending: false }),
+ 		db().from('rto_media').select('id, kind, drive_file_id, mime_type, size_bytes, uploaded_at').eq('rto_id', id).is('trashed_at', null).order('uploaded_at')
+ 	]);
+ 	if (r.error) throw new Error(`rtos: ${r.error.message}`);
+diff --git a/src/lib/server/tickets.ts b/src/lib/server/tickets.ts
+new file mode 100644
+index 0000000..74fcbe0
+--- /dev/null
++++ b/src/lib/server/tickets.ts
+@@ -0,0 +1,20 @@
++import { error } from '@sveltejs/kit';
++import { db } from './supabase.ts';
++import { fail, UUID } from './actions.ts';
++import { cleanTicketRef } from '#lib/tickets.ts';
++
++/** Mark one courier ticket raised for the ticked parcels. {rto_ids[], ticket_ref, raised_on?, description?} → {event_id, n, ticket_ref} */
++export async function raiseTicket(raw: unknown) {
++	const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
++	const ids = Array.isArray(b.rto_ids) ? [...new Set(b.rto_ids.filter((x): x is string => typeof x === 'string' && UUID.test(x)))] : [];
++	if (!ids.length) error(400, 'Tick at least one parcel');
++	if (ids.length > 100) error(400, 'Up to 100 parcels per ticket');
++	const ref = cleanTicketRef(b.ticket_ref);
++	if (!ref) error(400, 'Type the ticket number');
++	const args: Record<string, unknown> = { rto_ids: ids, ticket_ref: ref };
++	if (typeof b.raised_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.raised_on)) args.raised_on = b.raised_on;
++	if (typeof b.description === 'string' && b.description.trim()) args.description = b.description.trim().slice(0, 12000);
++	const { data, error: e } = await db().rpc('raise_ticket', { p_args: args });
++	if (e) fail(e.message);
++	return data as { event_id: number; n: number; ticket_ref: string; courier: string };
++}
+diff --git a/src/lib/tickets.ts b/src/lib/tickets.ts
+new file mode 100644
+index 0000000..e8bd3ce
+--- /dev/null
++++ b/src/lib/tickets.ts
+@@ -0,0 +1,179 @@
++// Phase 4 auto-flags → courier tickets: parcels the panel dispute can't cover (stuck in transit, marked lost,
++// not received after the dispute window). One combined ticket per courier. Pure, tested.
++import { DAY, num, orderLabel, lastMove, isSheetOnly, isNonDropy, isStuck, type Rto, type Rules } from './dashboard.ts';
++import { dateLong, dateTimeLong, carrierShort } from './claims.ts';
++
++export type TicketKind = 'stuck' | 'lost' | 'not_received';
++
++export interface TicketRow {
++	rtoId: string;
++	kind: TicketKind;
++	courier: 'velocity' | 'shiprocket';
++	label: string; // '#3136' or 'Praveen'
++	orderName: string; // '#Dropy-3136' or 'Praveen'
++	awb: string;
++	carrier: string; // 'DTDC'
++	amount: number;
++	/** stuck: days with no movement · not_received: days since marked delivered · lost: days since the last event */
++	days: number | null;
++	at: string | null; // last movement (stuck/lost) or marked-delivered time (not_received)
++	lastText: string | null;
++	lastPlace: string | null;
++	nonDropy: boolean;
++}
++
++export interface TicketGroup {
++	courier: 'velocity' | 'shiprocket';
++	rows: TicketRow[];
++	value: number;
++}
++
++export type TicketRto = Rto & { last_event_text?: string | null; last_event_location?: string | null };
++
++const OPEN = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated']);
++const KIND_ORDER: Record<TicketKind, number> = { stuck: 0, lost: 1, not_received: 2 };
++const ms = (iso: string | null | undefined) => {
++	const t = iso ? Date.parse(iso) : NaN;
++	return Number.isNaN(t) ? null : t;
++};
++const daysSince = (t: number, now: number) => Math.max(0, Math.floor((now - t) / DAY));
++
++export const COURIER_NAME: Record<string, string> = { velocity: 'Velocity', shiprocket: 'Shiprocket' };
++
++export function ticketKind(r: TicketRto, now: number, rules: Rules): TicketKind | null {
++	if (isStuck(r, now, rules)) return 'stuck';
++	if (r.stage === 'lost') return 'lost';
++	if (r.stage === 'awaiting_receipt' && !r.scanned_at && r.reship_state !== 'pending') {
++		const t = ms(r.rto_delivered_at);
++		// inside the window it is an MDND panel dispute (Disputes list), not a ticket
++		if (t === null || t + rules.windowDays * DAY < now) return 'not_received';
++	}
++	return null;
++}
++
++export function ticketRow(r: TicketRto, kind: TicketKind, now: number): TicketRow {
++	const at = kind === 'not_received' ? r.rto_delivered_at : (() => { const t = lastMove(r); return t === null ? null : new Date(t).toISOString(); })();
++	const t = ms(at);
++	return {
++		rtoId: r.id,
++		kind,
++		courier: r.courier!,
++		label: orderLabel(r),
++		orderName: isNonDropy(r) ? String(r.order_no) : `#Dropy-${r.order_no}`,
++		awb: r.forward_awb!,
++		carrier: carrierShort(r.carrier_name),
++		amount: num(r.order_value),
++		days: t === null ? null : daysSince(t, now),
++		at,
++		lastText: r.last_event_text ?? null,
++		lastPlace: r.last_event_location ? r.last_event_location.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim() : null,
++		nonDropy: isNonDropy(r)
++	};
++}
++
++/** Parcels to put on a courier ticket, one group per courier. Skips anything with an open claim (already raised). */
++export function buildTickets(rtos: TicketRto[], claims: { rto_id: string; status: string }[], rules: Rules, now: number): TicketGroup[] {
++	const claimed = new Set(claims.filter((c) => OPEN.has(c.status)).map((c) => c.rto_id));
++	const by = new Map<string, TicketRow[]>();
++	for (const r of rtos) {
++		if (!r.courier || isSheetOnly(r) || claimed.has(r.id)) continue;
++		const kind = ticketKind(r, now, rules);
++		if (!kind) continue;
++		by.set(r.courier, [...(by.get(r.courier) ?? []), ticketRow(r, kind, now)]);
++	}
++	return [...by.entries()]
++		.map(([courier, rows]) => ({
++			courier: courier as TicketGroup['courier'],
++			rows: rows.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.amount - a.amount),
++			value: rows.reduce((s, x) => s + x.amount, 0)
++		}))
++		.sort((a, b) => (a.courier === 'velocity' ? -1 : b.courier === 'velocity' ? 1 : 0));
++}
++
++/** List line under the order no. */
++export function ticketSub(x: TicketRow): string {
++	switch (x.kind) {
++		case 'stuck':
++			return `No movement for ${x.days} d · ${x.carrier}${x.lastText ? ` · ${x.lastText}` : ''}`;
++		case 'lost':
++			return `Courier says lost${x.at ? ` ${dateLong(x.at)}` : ''} · ${x.carrier}`;
++		default:
++			return x.at ? `Marked delivered ${x.days} d ago, never arrived · ${x.carrier}` : `Marked delivered (no date), never arrived · ${x.carrier}`;
++	}
++}
++
++export const ticketPill = (x: TicketRow): { label: string; tone: 'bad' | 'warn' } =>
++	x.kind === 'stuck' ? { label: 'Likely lost', tone: 'bad' } : x.kind === 'lost' ? { label: 'Lost', tone: 'bad' } : { label: 'Not received', tone: 'warn' };
++
++const inrFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
++const rs = (n: number) => `₹${inrFmt.format(Math.round(n))}`;
++
++const SECTION: Record<TicketKind, { title: (stuckDays: number) => string; ask: string; subject: string }> = {
++	stuck: {
++		title: (d) => `RTO stuck in transit: no tracking update for ${d}+ days`,
++		ask: 'trace each shipment and deliver it back to our warehouse, or confirm it as lost and settle it for the order value shown.',
++		subject: 'stuck in transit'
++	},
++	lost: {
++		title: () => 'Marked lost by the courier',
++		ask: 'settle each claim for the order value shown and share the credit note number for each AWB.',
++		subject: 'marked lost'
++	},
++	not_received: {
++		title: () => 'Marked "RTO Delivered", but never received at our warehouse',
++		ask: 'share the POD for each AWB (receiver signature, delivery photo, receiver name and ID). If there is no POD, treat it as lost and settle it for the order value shown.',
++		subject: 'marked delivered, not received'
++	}
++};
++
++function line(x: TicketRow, i: number): string {
++	const head = `${i}. ${x.orderName} | AWB ${x.awb} (${x.carrier})`;
++	let what: string;
++	if (x.kind === 'stuck') {
++		const ev = [x.lastText ? `"${x.lastText}"` : '', x.lastPlace ? `at ${x.lastPlace}` : ''].filter(Boolean).join(' ');
++		what = `last update ${dateLong(x.at)}${ev ? `: ${ev}` : ''} (${x.days} days ago)`;
++	} else if (x.kind === 'lost') {
++		what = x.at ? `marked lost ${dateLong(x.at)}` : 'marked lost';
++	} else {
++		what = x.at ? `marked delivered ${dateTimeLong(x.at)} (${x.days} days ago)` : 'marked delivered (no date in tracking)';
++	}
++	return `${head} | ${what} | ${rs(x.amount)}`;
++}
++
++/** Ready-to-paste Freshdesk ticket. Never names the company, only "our warehouse" / Team Dropy. */
++export function ticketText(rows: TicketRow[], stuckDays: number): { subject: string; body: string } {
++	const kinds = (['stuck', 'lost', 'not_received'] as TicketKind[]).filter((k) => rows.some((r) => r.kind === k));
++	const total = rows.reduce((s, x) => s + x.amount, 0);
++	const n = rows.length;
++	const subject =
++		n === 1
++			? `RTO ${SECTION[rows[0].kind].subject}: AWB ${rows[0].awb} | ${rows[0].orderName}`
++			: `RTO ${kinds.map((k) => SECTION[k].subject).join(' / ')}: ${n} shipments | Dropy`;
++
++	const letters = 'ABC';
++	const out: string[] = ['Hi Team,', '', `Please help with the RTO shipment${n > 1 ? 's' : ''} below. ${n > 1 ? 'They have' : 'It has'} not come back to our warehouse.`];
++	kinds.forEach((k, j) => {
++		out.push('', `${kinds.length > 1 ? `${letters[j]}. ` : ''}${SECTION[k].title(stuckDays)}`);
++		rows.filter((r) => r.kind === k).forEach((r, i) => out.push(line(r, i + 1)));
++	});
++	out.push('', 'What we need within 48 hours:');
++	kinds.forEach((k, j) => out.push(`- ${kinds.length > 1 ? `${letters[j]}: ` : ''}${SECTION[k].ask[0].toUpperCase()}${SECTION[k].ask.slice(1)}`));
++	out.push(
++		'',
++		`Total order value: ${rs(total)} across ${n} shipment${n > 1 ? 's' : ''}. Pre-dispatch packing videos are available for every shipment if needed.`,
++		'',
++		'Thanks & Regards,',
++		'Team Dropy',
++		'support@dropy.in'
++	);
++	return { subject, body: out.join('\n') };
++}
++
++/** '#106373', '106373' → '#106373'; anything else kept as typed (trimmed). Empty → ''. */
++export function cleanTicketRef(v: unknown): string {
++	const s = String(v ?? '').trim().replace(/^#\s*/, '');
++	if (!s) return '';
++	return /^\d+$/.test(s) ? `#${s}` : s.slice(0, 40);
++}
++
++export const FRESHDESK_NEW = 'https://shipfast.freshdesk.com/support/tickets/new';
+diff --git a/src/routes/api/ticket/+server.ts b/src/routes/api/ticket/+server.ts
+new file mode 100644
+index 0000000..8821f46
+--- /dev/null
++++ b/src/routes/api/ticket/+server.ts
+@@ -0,0 +1,10 @@
++import { json } from '@sveltejs/kit';
++import { requireUser, SESSION_COOKIE } from '#lib/server/session.ts';
++import { raiseTicket } from '#lib/server/tickets.ts';
++import type { RequestHandler } from './$types';
++
++/** POST {rto_ids[], ticket_ref, raised_on?, description?} → one courier ticket recorded on every ticked parcel (undo = whole ticket). */
++export const POST: RequestHandler = async ({ request, cookies }) => {
++	await requireUser(request, cookies.get(SESSION_COOKIE));
++	return json(await raiseTicket(await request.json().catch(() => ({}))));
++};
+diff --git a/src/routes/claims/+page.svelte b/src/routes/claims/+page.svelte
+index 4961b04..3bc6cfb 100644
+--- a/src/routes/claims/+page.svelte
++++ b/src/routes/claims/+page.svelte
+@@ -1,10 +1,12 @@
+ <script lang="ts">
+-	import { onMount, tick } from 'svelte';
++	import { onMount, tick as tick_ } from 'svelte';
+ 	import { invalidateAll, replaceState } from '$app/navigation';
+ 	import { page } from '$app/state';
+ 	import BottomNav from '#lib/components/BottomNav.svelte';
+ 	import ClaimCard from '#lib/components/ClaimCard.svelte';
+ 	import UndoBar from '#lib/components/UndoBar.svelte';
++	import TicketDraft from '#lib/components/TicketDraft.svelte';
++	import { ticketSub, ticketPill, COURIER_NAME, type TicketGroup } from '#lib/tickets.ts';
+ 	import { inr, num, dateShort } from '#lib/dashboard.ts';
+ 	import { rtoHref, undoFromUrl } from '#lib/scan.ts';
+ 	import type { QueueRow } from '#lib/queue.ts';
+@@ -20,6 +22,13 @@
+ 	let err = $state('');
+ 	let packing = $state<Record<string, string | null>>({});
+ 	let paneEl = $state<HTMLElement>();
++	// Phase 4: parcels ticked for one combined courier ticket (one courier at a time)
++	let ticked = $state<string[]>([]);
++	let view = $state<'claim' | 'ticket'>('claim');
++	const tickRows = $derived(data.tickets.flatMap((g) => g.rows).filter((r) => ticked.includes(r.rtoId)));
++	const tickValue = $derived(tickRows.reduce((s, r) => s + r.amount, 0));
++	const ticketN = $derived(data.tickets.reduce((s, g) => s + g.rows.length, 0));
++	const ticketValue = $derived(data.tickets.reduce((s, g) => s + g.value, 0));
+ 
+ 	const row = $derived(all.find((r) => r.rtoId === sel) ?? null);
+ 	const claim = $derived(row?.claimId ? data.claims.find((c) => c.id === row.claimId) ?? null : null);
+@@ -54,10 +63,34 @@
+ 			.catch(() => {});
+ 	});
+ 
++	function tick(g: TicketGroup, id: string) {
++		const same = tickRows.every((r) => r.courier === g.courier);
++		const base = same ? ticked : [];
++		ticked = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
++		view = 'ticket';
++	}
++	function tickAll(g: TicketGroup) {
++		const ids = g.rows.map((r) => r.rtoId);
++		ticked = ids.every((id) => ticked.includes(id)) ? [] : ids;
++		view = 'ticket';
++	}
++	async function showTicket() {
++		view = 'ticket';
++		await tick_();
++		paneEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
++	}
++	async function ticketRaised(eventId: number, n: number, ref: string) {
++		undo = { text: `Ticket ${ref} recorded on ${n} parcel${n > 1 ? 's' : ''}`, eventId };
++		ticked = [];
++		view = 'claim';
++		await invalidateAll();
++	}
++
+ 	async function pick(r: QueueRow) {
+ 		sel = r.rtoId;
++		view = 'claim';
+ 		err = '';
+-		await tick();
++		await tick_();
+ 		if (!window.matchMedia('(min-width: 1024px)').matches) paneEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+ 	}
+ 
+@@ -105,10 +138,11 @@
+ 		<h1>Disputes</h1>
+ 	</header>
+ 
+-	<main class="content">
++	<main class="content" class:withbar={tickRows.length > 0}>
+ 		<div class="head">
+ 			<h1 class="desk-only">Disputes to raise</h1>
+ 			<span class="pill {q.totals.n ? 'p-bad' : 'p-ok'}">{q.totals.n ? `${q.totals.n} to raise · ${inr(q.totals.value)}` : 'Nothing to raise'}</span>
++			{#if ticketN}<span class="pill p-warn">{ticketN} for a ticket · {inr(ticketValue)}</span>{/if}
+ 		</div>
+ 		<p class="lead muted">Every claim ready to paste into Velocity. Raise one, mark it raised, the next one opens.</p>
+ 		{#if undo}<div class="undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
+@@ -124,9 +158,24 @@
+ 				{:else}
+ 					<p class="small muted empty">Nothing waiting to be raised.</p>
+ 				{/each}
+-				{#if q.olderNotReceived}
+-					<a class="older small" href="/rtos?f=action">{q.olderNotReceived} older not-received parcel{q.olderNotReceived > 1 ? 's' : ''} (window closed or no date) → Needs action</a>
+-				{/if}
++				{#each data.tickets as g (g.courier)}
++					{@const all = g.rows.every((r) => ticked.includes(r.rtoId))}
++					<div class="sec tsec">
++						<span>TICKETS TO RAISE · {(COURIER_NAME[g.courier] ?? g.courier).toUpperCase()} · {g.rows.length}</span>
++						<button class="link" onclick={() => tickAll(g)}>{all ? 'Clear' : 'Select all'}</button>
++					</div>
++					<p class="small muted hint">Stuck {data.stuckDays}+ days, marked lost, or not received after the dispute window. The panel dispute can't take these: tick them for one ticket.</p>
++					{#each g.rows as t (t.rtoId)}
++						{@const pill = ticketPill(t)}
++						<label class="qrow trow" class:on={ticked.includes(t.rtoId)}>
++							<span class="l1">
++								<span class="lb"><input type="checkbox" checked={ticked.includes(t.rtoId)} onchange={() => tick(g, t.rtoId)} /><b>{t.label}</b>{#if t.nonDropy}<span class="pill p-mute">not Dropy</span>{/if}</span>
++								<b class="money">{inr(t.amount)}</b>
++							</span>
++							<span class="l2"><span class="muted">{ticketSub(t)}</span><span class="pill p-{pill.tone}">{pill.label}</span></span>
++						</label>
++					{/each}
++				{/each}
+ 
+ 				{#if q.raised.length}
+ 					<div class="sec">RAISED · FOLLOW UP</div>
+@@ -140,7 +189,11 @@
+ 			</div>
+ 
+ 			<div class="pane" bind:this={paneEl}>
+-				{#if row && info}
++				{#if view === 'ticket' && tickRows.length}
++					<TicketDraft rows={tickRows} stuckDays={data.stuckDays} onraised={ticketRaised} />
++				{:else if view === 'ticket'}
++					<div class="card idle">Tick parcels under "Tickets to raise". One ticket text covers all of them, ready to paste.</div>
++				{:else if row && info}
+ 					<div class="ptop">
+ 						<a class="small open" href={rtoHref(row.rtoId, '/claims')}>Open RTO page →</a>
+ 						<span class="small muted">{info.carrier_name ?? ''} <span class="mono">{info.forward_awb ?? ''}</span>{info.customer_name ? ` · ${info.customer_name}` : ''}</span>
+@@ -172,6 +225,12 @@
+ 			</div>
+ 		</div>
+ 	</main>
++	{#if tickRows.length}
++		<div class="tbar mobile-only">
++			<span><b>{tickRows.length} ticked</b> · {inr(tickValue)}</span>
++			<button onclick={showTicket}>Draft ticket ↓</button>
++		</div>
++	{/if}
+ </div>
+ <BottomNav active="claims" />
+ 
+@@ -189,7 +248,18 @@
+ 	.l1 b:first-child { font-size: 16px; font-weight: 800; }
+ 	.l2 .muted { font-size: 13px; }
+ 	.empty { margin: 4px 2px; }
+-	.older { color: var(--acc); font-weight: 600; margin: 2px 2px 6px; }
++	.tsec { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
++	.link { border: 0; background: none; color: var(--acc); font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 2px; }
++	.hint { margin: 0 2px 2px; line-height: 1.45; }
++	.trow { cursor: pointer; }
++	@media (max-width: 1023.98px) { .withbar { padding-bottom: 84px; } }
++	.lb { display: inline-flex; align-items: center; gap: 10px; }
++	.lb input { width: 20px; height: 20px; accent-color: var(--acc); margin: 0; flex: none; }
++	.tbar { position: fixed; left: 12px; right: 12px; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 10px); z-index: 11;
++		display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: 14px;
++		background: var(--ink); color: var(--bg); font-size: 14px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.18); }
++	.tbar button { height: 42px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--acc); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
++	@media (min-width: 560px) { .tbar { left: 50%; right: auto; width: 536px; transform: translateX(-50%); } }
+ 	.ptop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+ 	.open { color: var(--acc); font-weight: 700; }
+ 	.mdnd { display: flex; flex-direction: column; gap: 10px; border-color: var(--acc); }
+diff --git a/supabase/migrations/0010_tickets.sql b/supabase/migrations/0010_tickets.sql
+new file mode 100644
+index 0000000..5791132
+--- /dev/null
++++ b/supabase/migrations/0010_tickets.sql
+@@ -0,0 +1,232 @@
++-- 0010 (Phase 4) Auto-flags: stuck / lost / older not-received parcels → one combined courier ticket
++-- 1. setting stuck_days (7): coming back with no tracking movement for this long = "Likely lost" (JD 7 Oct)
++-- 2. raise_ticket(): one support-ticket claim per parcel (status raised, same ticket no.), stage NOT changed,
++--    so the 15-min sync keeps tracking them; can be back-dated for tickets raised before DRC (#106373)
++-- 3. undo_rto_action() v4: an undo of any parcel in a ticket undoes the whole ticket (one transaction).
++--    The per-event body is unchanged from v3 (now _undo_event) plus the 'ticket' op.
++begin;
++
++-- ---------- 1. setting ----------
++insert into public.settings (key, value, note)
++values ('stuck_days', '7', 'Coming back with no tracking movement for this many days = Likely lost, raise a ticket')
++on conflict (key) do nothing;
++
++-- ---------- 2. raise_ticket ----------
++-- p_args: {rto_ids: [uuid…], ticket_ref, raised_on?: 'YYYY-MM-DD' (IST, not in the future), description?}
++-- reason per parcel: courier says RTO delivered → 'mdnd'; still coming back / marked lost → 'lost'
++create or replace function public.raise_ticket(p_args jsonb)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_ref     text := regexp_replace(trim(coalesce(p_args->>'ticket_ref', '')), '^#\s*', '');
++  v_num     boolean;
++  v_today   date := (now() at time zone 'Asia/Kolkata')::date;
++  v_day     date;
++  v_at      timestamptz := now();
++  v_desc    text := nullif(trim(coalesce(p_args->>'description', '')), '');
++  v_batch   uuid := gen_random_uuid();
++  v_courier text;
++  v_id      text;
++  r         public.rtos%rowtype;
++  v_reason  text;
++  v_cap     numeric;
++  v_claim   uuid;
++  v_event   bigint;
++  v_first   bigint;
++  v_n       int := 0;
++begin
++  if v_ref = '' then raise exception 'DRC_TICKET_REF_REQUIRED'; end if;
++  v_num := v_ref ~ '^\d+$';
++  if v_num then v_ref := '#' || v_ref; end if;
++
++  if coalesce(p_args->>'raised_on', '') <> '' then
++    begin
++      v_day := (p_args->>'raised_on')::date;
++    exception when others then
++      raise exception 'DRC_BAD_DATE';
++    end;
++    if v_day > v_today or v_day < date '2024-01-01' then raise exception 'DRC_BAD_DATE'; end if;
++    if v_day < v_today then v_at := (v_day + time '12:00') at time zone 'Asia/Kolkata'; end if;
++  end if;
++
++  if jsonb_typeof(p_args->'rto_ids') is distinct from 'array' or jsonb_array_length(p_args->'rto_ids') = 0 then
++    raise exception 'DRC_NO_PARCELS';
++  end if;
++
++  for v_id in select distinct jsonb_array_elements_text(p_args->'rto_ids') loop
++    select * into r from public.rtos where id = v_id::uuid for update;
++    if not found then raise exception 'DRC_NOT_FOUND'; end if;
++    if r.courier is null or r.forward_awb is null then raise exception 'DRC_NO_COURIER'; end if;
++    if v_courier is null then v_courier := r.courier;
++    elsif v_courier <> r.courier then raise exception 'DRC_MIXED_COURIER';
++    end if;
++    if exists (select 1 from public.claims
++                where rto_id = r.id and status in ('draft','raised','waiting','approved','escalated')) then
++      raise exception 'DRC_HAS_CLAIM %', coalesce(r.order_no, r.forward_awb);
++    end if;
++
++    v_reason := case when r.stage = 'awaiting_receipt' then 'mdnd' else 'lost' end;
++    select (value->r.courier->>'lost')::numeric into v_cap from public.settings where key = 'recovery_caps';
++
++    insert into public.claims (rto_id, courier, channel, reason, status, ticket_ref, ticket_url,
++                               claimed_amount, expected_amount, raised_at, description)
++    values (r.id, r.courier, 'support_ticket', v_reason, 'raised', v_ref,
++            case when v_num and r.courier = 'velocity'
++                 then 'https://shipfast.freshdesk.com/support/tickets/' || substr(v_ref, 2) end,
++            coalesce(r.order_value, 0),
++            case when v_reason = 'lost' and v_cap is not null then least(coalesce(r.order_value, 0), v_cap) end,
++            v_at, v_desc)
++    returning id into v_claim;
++
++    insert into public.events (source, rto_id, awb, kind, payload)
++    values ('user', r.id, r.forward_awb, 'stage_change',
++            jsonb_build_object('action', 'ticket_raised', 'from', r.stage, 'to', r.stage, 'batch', v_batch,
++              'before', jsonb_build_object('stage', r.stage, 'scanned_at', r.scanned_at, 'refund_state', r.refund_state,
++                         'reship_date', r.reship_date, 'callback_attempts', r.callback_attempts,
++                         'callback_outcome', r.callback_outcome, 'reship_state', r.reship_state, 'notes', r.notes),
++              'claim', jsonb_build_object('op', 'ticket', 'id', v_claim, 'reason', v_reason),
++              'args', jsonb_build_object('ticket_ref', v_ref, 'reason', v_reason, 'raised_on', v_at::date,
++                                         'parcels', jsonb_array_length(p_args->'rto_ids'))))
++    returning id into v_event;
++
++    v_first := coalesce(v_first, v_event);
++    v_n := v_n + 1;
++  end loop;
++
++  return jsonb_build_object('event_id', v_first, 'batch', v_batch, 'n', v_n, 'ticket_ref', v_ref, 'courier', v_courier);
++end;
++$$;
++
++-- ---------- 3. undo v4 ----------
++-- 3a. one event (v3 body + 'ticket' op: delete the ticket claim, the RTO row itself was not changed)
++create or replace function public._undo_event(p_event bigint)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  e      public.events%rowtype;
++  b      jsonb;
++  cl     jsonb;
++  ib     jsonb;
++  latest bigint;
++  v_st   text;
++begin
++  select * into e from public.events where id = p_event and kind = 'stage_change' and source = 'user' for update;
++  if not found then raise exception 'DRC_NOT_FOUND'; end if;
++  if coalesce((e.payload->>'undone')::boolean, false) then raise exception 'DRC_ALREADY_UNDONE'; end if;
++  if e.received_at < now() - interval '10 minutes' then raise exception 'DRC_UNDO_EXPIRED'; end if;
++
++  select max(id) into latest from public.events
++   where rto_id = e.rto_id and kind = 'stage_change' and source = 'user'
++     and not coalesce((payload->>'undone')::boolean, false);
++  if latest <> e.id then raise exception 'DRC_NOT_LATEST'; end if;
++
++  b  := e.payload->'before';
++  cl := e.payload->'claim';
++  ib := e.payload->'item_before';
++
++  if cl->>'op' = 'ticket' then
++    select status into v_st from public.claims where id = (cl->>'id')::uuid for update;
++    if v_st is not null and v_st <> 'raised' then raise exception 'DRC_TICKET_CHANGED'; end if;
++    delete from public.claims where id = (cl->>'id')::uuid;
++  else
++    if cl->>'op' = 'create' then
++      select status into v_st from public.claims where id = (cl->>'id')::uuid for update;
++      if v_st is not null and v_st <> 'draft' then raise exception 'DRC_CLAIM_NOT_DRAFT'; end if;
++      delete from public.rto_media where id in (select (jsonb_array_elements_text(coalesce(cl->'media_ids', '[]'::jsonb)))::uuid);
++      update public.rto_items i set
++        condition         = x->>'condition',
++        ready_stock_state = x->>'ready_stock_state',
++        ready_stock_at    = (x->>'ready_stock_at')::timestamptz
++      from jsonb_array_elements(coalesce(cl->'items_before', '[]'::jsonb)) x
++      where i.id = (x->>'id')::uuid;
++      delete from public.claims where id = (cl->>'id')::uuid;
++    elsif cl->>'op' = 'raise' then
++      update public.claims set
++        status      = cl->'claim_before'->>'status',
++        raised_at   = (cl->'claim_before'->>'raised_at')::timestamptz,
++        ticket_ref  = cl->'claim_before'->>'ticket_ref',
++        description = cl->'claim_before'->>'description'
++      where id = (cl->>'id')::uuid;
++    end if;
++
++    if ib is not null then
++      update public.rto_items set
++        reused_qty        = (ib->>'reused_qty')::int,
++        reused_orders     = coalesce((select array_agg(x) from jsonb_array_elements_text(ib->'reused_orders') x), '{}'),
++        ready_stock_state = ib->>'ready_stock_state'
++      where id = (ib->>'id')::uuid;
++    end if;
++
++    update public.rtos set
++      stage             = b->>'stage',
++      scanned_at        = (b->>'scanned_at')::timestamptz,
++      refund_state      = b->>'refund_state',
++      reship_date       = (b->>'reship_date')::date,
++      callback_attempts = (b->>'callback_attempts')::int,
++      callback_outcome  = b->>'callback_outcome',
++      reship_state      = b->>'reship_state',
++      notes             = b->>'notes',
++      media_state       = case when b ? 'media_state' then b->>'media_state' else media_state end,
++      media_folder_id   = case when b ? 'media_state' then b->>'media_folder_id' else media_folder_id end
++    where id = e.rto_id;
++
++    update public.rto_items set ready_stock_state = 'na', ready_stock_at = null
++     where id in (select (jsonb_array_elements_text(coalesce(e.payload->'items', '[]'::jsonb)))::uuid);
++
++    if e.payload->>'callback_id' is not null then
++      delete from public.callbacks where id = (e.payload->>'callback_id')::uuid;
++    end if;
++  end if;
++
++  update public.events set payload = payload || jsonb_build_object('undone', true, 'undone_at', now()) where id = e.id;
++  insert into public.events (source, rto_id, awb, kind, payload)
++  values ('user', e.rto_id, e.awb, 'undo', jsonb_build_object('undid', e.id, 'restored_stage', b->>'stage'));
++
++  return jsonb_build_object('rto_id', e.rto_id, 'stage', b->>'stage');
++end;
++$$;
++
++-- 3b. public entry point: a ticket (batch) is undone as a whole, everything else one event as before
++create or replace function public.undo_rto_action(p_event bigint)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  e       public.events%rowtype;
++  v_batch text;
++  x       bigint;
++  v_out   jsonb;
++  v_n     int := 0;
++begin
++  select * into e from public.events where id = p_event and kind = 'stage_change' and source = 'user';
++  if not found then raise exception 'DRC_NOT_FOUND'; end if;
++  v_batch := e.payload->>'batch';
++  if v_batch is null then return public._undo_event(p_event); end if;
++  if coalesce((e.payload->>'undone')::boolean, false) then raise exception 'DRC_ALREADY_UNDONE'; end if;
++
++  for x in select id from public.events
++            where kind = 'stage_change' and source = 'user' and payload->>'batch' = v_batch
++              and not coalesce((payload->>'undone')::boolean, false)
++            order by id desc loop
++    v_out := public._undo_event(x);
++    v_n := v_n + 1;
++  end loop;
++  return v_out || jsonb_build_object('n', v_n);
++end;
++$$;
++
++revoke all on function public.raise_ticket(jsonb) from public, anon, authenticated;
++revoke all on function public._undo_event(bigint) from public, anon, authenticated;
++revoke all on function public.undo_rto_action(bigint) from public, anon, authenticated;
++grant execute on function public.raise_ticket(jsonb) to service_role;
++grant execute on function public.undo_rto_action(bigint) to service_role;
++
++commit;
+diff --git a/tests/sql/0010_test.sql b/tests/sql/0010_test.sql
+new file mode 100644
+index 0000000..a411c1b
+--- /dev/null
++++ b/tests/sql/0010_test.sql
+@@ -0,0 +1,71 @@
++\set QUIET on
++begin;
++create or replace function pg_temp.ok(c boolean, msg text) returns void language plpgsql as $$
++begin if c is distinct from true then raise exception 'FAIL: %', msg; end if; raise notice 'ok  %', msg; end $$;
++create or replace function pg_temp.fails(sql text, want text) returns void language plpgsql as $$
++begin
++  begin execute sql; exception when others then
++    if sqlerrm like '%' || want || '%' then raise notice 'ok  refused: %', want; return; end if;
++    raise exception 'FAIL: wanted %, got %', want, sqlerrm;
++  end;
++  raise exception 'FAIL: % was not refused', want;
++end $$;
++
++select pg_temp.ok((select value = '7'::jsonb from settings where key = 'stuck_days'), 'stuck_days setting = 7');
++
++insert into public.rtos (id, courier, forward_awb, order_no, order_value, stage, payment_mode, last_movement_at, rto_delivered_at) values
++ ('00000000-0000-0000-0000-0000000000d1','velocity','D1','9001',3250,'in_flight','cod', now() - interval '25 days', null),
++ ('00000000-0000-0000-0000-0000000000d2','velocity','D2','9002',998,'awaiting_receipt','prepaid', null, now() - interval '40 days'),
++ ('00000000-0000-0000-0000-0000000000d3','velocity','D3','9003',3977,'lost','cod', now() - interval '19 days', null),
++ ('00000000-0000-0000-0000-0000000000d4','shiprocket','D4','9004',500,'in_flight','cod', now() - interval '9 days', null),
++ ('00000000-0000-0000-0000-0000000000d5','velocity','D5','9005',700,'in_flight','cod', now() - interval '9 days', null);
++insert into public.claims (rto_id, courier, reason, status, claimed_amount)
++values ('00000000-0000-0000-0000-0000000000d5','velocity','mdnd','draft',700);
++
++-- refusals
++select pg_temp.fails($q$select raise_ticket('{"rto_ids":["00000000-0000-0000-0000-0000000000d1"]}')$q$, 'DRC_TICKET_REF_REQUIRED');
++select pg_temp.fails($q$select raise_ticket('{"ticket_ref":"#1","rto_ids":[]}')$q$, 'DRC_NO_PARCELS');
++select pg_temp.fails($q$select raise_ticket('{"ticket_ref":"1","rto_ids":["00000000-0000-0000-0000-0000000000d1","00000000-0000-0000-0000-0000000000d4"]}')$q$, 'DRC_MIXED_COURIER');
++select pg_temp.fails($q$select raise_ticket('{"ticket_ref":"1","rto_ids":["00000000-0000-0000-0000-0000000000d5"]}')$q$, 'DRC_HAS_CLAIM 9005');
++select pg_temp.fails($q$select raise_ticket('{"ticket_ref":"1","raised_on":"2099-01-01","rto_ids":["00000000-0000-0000-0000-0000000000d1"]}')$q$, 'DRC_BAD_DATE');
++select pg_temp.fails($q$select raise_ticket('{"ticket_ref":"1","raised_on":"5 Oct","rto_ids":["00000000-0000-0000-0000-0000000000d1"]}')$q$, 'DRC_BAD_DATE');
++select pg_temp.ok((select count(*) = 1 from claims where rto_id::text like '00000000-0000-0000-0000-0000000000d%'), 'refusals saved nothing');
++
++-- raise one ticket for 3 parcels, back-dated
++create temp table t_out as
++select raise_ticket(jsonb_build_object('ticket_ref', ' #106373 ', 'raised_on', ((now() at time zone 'Asia/Kolkata')::date - 2)::text,
++  'description', 'Ticket text', 'rto_ids', jsonb_build_array('00000000-0000-0000-0000-0000000000d1','00000000-0000-0000-0000-0000000000d2','00000000-0000-0000-0000-0000000000d3'))) as o;
++select pg_temp.ok((select (o->>'n')::int = 3 and o->>'ticket_ref' = '#106373' and o->>'courier' = 'velocity' from t_out), 'ticket for 3 parcels, ref normalised');
++select pg_temp.ok((select count(*) = 3 from claims where ticket_ref = '#106373' and status = 'raised' and channel = 'support_ticket'
++                   and ticket_url = 'https://shipfast.freshdesk.com/support/tickets/106373' and description = 'Ticket text'), '3 raised ticket claims with link');
++select pg_temp.ok((select reason = 'lost' and claimed_amount = 3250 and expected_amount = 2500 from claims c join rtos r on r.id = c.rto_id where r.order_no = '9001' and c.ticket_ref = '#106373'), 'stuck → lost, Velocity cap ₹2,500 expected');
++select pg_temp.ok((select reason = 'mdnd' and expected_amount is null from claims c join rtos r on r.id = c.rto_id where r.order_no = '9002' and c.ticket_ref = '#106373'), 'delivered-not-received → mdnd');
++select pg_temp.ok((select (raised_at at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date - 2 from claims c join rtos r on r.id = c.rto_id where r.order_no = '9003' and c.ticket_ref = '#106373'), 'back-dated raised day');
++select pg_temp.ok((select stage = 'in_flight' from rtos where order_no = '9001') and (select stage = 'awaiting_receipt' from rtos where order_no = '9002')
++                  and (select stage = 'lost' from rtos where order_no = '9003'), 'stages unchanged (sync keeps tracking)');
++select pg_temp.ok((select count(distinct payload->>'batch') = 1 and count(*) = 3 from events where payload->>'action' = 'ticket_raised'), '3 events, one batch');
++select pg_temp.fails($q$select raise_ticket('{"ticket_ref":"2","rto_ids":["00000000-0000-0000-0000-0000000000d1"]}')$q$, 'DRC_HAS_CLAIM 9001');
++
++-- undo any parcel = whole ticket
++select pg_temp.ok((select (undo_rto_action((select (o->>'event_id')::bigint from t_out))->>'n')::int = 3), 'undo returns n = 3');
++select pg_temp.ok((select count(*) = 0 from claims where ticket_ref = '#106373'), 'all 3 ticket claims gone');
++select pg_temp.ok((select count(*) = 3 from events where payload->>'action' = 'ticket_raised' and (payload->>'undone')::boolean), 'all 3 events marked undone');
++select pg_temp.ok((select stage = 'lost' from rtos where order_no = '9003') and (select stage = 'in_flight' from rtos where order_no = '9001'), 'stages still unchanged after undo');
++select pg_temp.fails(format('select undo_rto_action(%s)', (select (o->>'event_id')::bigint from t_out)), 'DRC_ALREADY_UNDONE');
++
++-- a ticket claim moved on (e.g. approved) cannot be undone
++create temp table t2 as select raise_ticket('{"ticket_ref":"abc-9","rto_ids":["00000000-0000-0000-0000-0000000000d1"]}') as o;
++select pg_temp.ok((select ticket_ref = 'abc-9' and ticket_url is null from claims where ticket_ref = 'abc-9'), 'non-numeric ref kept, no link');
++update claims set status = 'approved' where ticket_ref = 'abc-9';
++select pg_temp.fails(format('select undo_rto_action(%s)', (select (o->>'event_id')::bigint from t2)), 'DRC_TICKET_CHANGED');
++
++-- older undo (v3 behaviour) still works: stock re-use
++insert into public.rto_items (id, rto_id, sku, title, qty, ready_stock_state, condition) values
++ ('00000000-0000-0000-0000-0000000d0001','00000000-0000-0000-0000-0000000000d4','Dropy-X','Cream',1,'in_stock','ok');
++create temp table t3 as select stock_action('reuse', '{"item_id":"00000000-0000-0000-0000-0000000d0001"}') as o;
++select pg_temp.ok((select ready_stock_state = 'reused' from rto_items where id = '00000000-0000-0000-0000-0000000d0001'), 'reuse');
++select undo_rto_action((select (o->>'event_id')::bigint from t3));
++select pg_temp.ok((select ready_stock_state = 'in_stock' and reused_qty = 0 from rto_items where id = '00000000-0000-0000-0000-0000000d0001'), 'v3 undo (re-use) still works');
++
++rollback;
++\echo ALL 0010 TESTS PASSED
+diff --git a/tests/tickets.test.ts b/tests/tickets.test.ts
+new file mode 100644
+index 0000000..ed433c3
+--- /dev/null
++++ b/tests/tickets.test.ts
+@@ -0,0 +1,132 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { buildTickets, ticketText, ticketSub, ticketPill, cleanTicketRef, type TicketRto } from '../src/lib/tickets.ts';
++import { DEFAULT_RULES, needsAction, rowFor, actionGroup, actionWhat, type Claim } from '../src/lib/dashboard.ts';
++import { buildQueue } from '../src/lib/queue.ts';
++import { describe as say } from '../src/lib/history.ts';
++
++const NOW = Date.parse('2026-10-07T07:30:00Z');
++const DAY = 86_400_000;
++const iso = (dAgo: number) => new Date(NOW - dAgo * DAY).toISOString();
++const rto = (id: string, p: Partial<TicketRto> = {}) =>
++	({ id, courier: 'velocity', carrier_name: 'DTDC Standard', order_no: id, order_name: null, forward_awb: `7D${id}`, rto_awb: null, scanned_code: null,
++		payment_mode: 'cod', order_value: 1000, customer_name: null, customer_phone10: null, stage: 'in_flight', courier_status: 'rto_in_transit',
++		rto_delivered_at: null, last_movement_at: null, last_event_at: null, legacy_source: null, scanned_at: null, ...p }) as TicketRto;
++
++const RTOS = [
++	rto('1146', { last_movement_at: iso(91), order_value: 3250, last_event_text: 'RTO In Transit', last_event_location: 'DELHI  HUB ,DELHI' }),
++	rto('1595', { last_movement_at: iso(42), order_value: 900 }),
++	rto('2001', { last_movement_at: iso(6.9) }), // 6 d: not yet (7)
++	rto('2002', { last_movement_at: null }), // no date: can't tell
++	rto('3082', { stage: 'lost', last_movement_at: iso(19), order_value: 3977, carrier_name: 'Delhivery' }),
++	rto('2529', { stage: 'awaiting_receipt', rto_delivered_at: '2026-08-22T15:31:00Z', order_value: 998 }), // window closed
++	rto('3946', { stage: 'awaiting_receipt', rto_delivered_at: iso(3) }), // inside window → panel MDND, not ticket
++	rto('1098', { stage: 'awaiting_receipt', rto_delivered_at: null, order_value: 1950 }), // no date → ticket
++	rto('2954', { stage: 'awaiting_receipt', rto_delivered_at: iso(30), reship_state: 'pending' }), // probably re-shipped
++	rto('3100', { stage: 'awaiting_receipt', rto_delivered_at: iso(30), scanned_at: iso(1) }), // scanned
++	rto('4000', { stage: 'in_flight', last_movement_at: iso(20), courier: 'shiprocket' }),
++	rto('5000', { last_movement_at: iso(20) }), // has an open claim already
++	rto('sheet', { forward_awb: null, legacy_source: 'sheet', stage: 'awaiting_receipt', courier: null }),
++	rto('Praveen', { stage: 'awaiting_receipt', rto_delivered_at: null, order_value: 32867.72 })
++];
++const CLAIMS = [{ rto_id: '5000', status: 'raised' }, { rto_id: '1595', status: 'closed' }];
++
++test('tickets: stuck 7+ d, lost, not received after the window; grouped per courier; open claims skipped', () => {
++	const g = buildTickets(RTOS, CLAIMS, DEFAULT_RULES, NOW);
++	assert.deepEqual(g.map((x) => x.courier), ['velocity', 'shiprocket']);
++	assert.deepEqual(g[0].rows.map((r) => [r.label, r.kind]), [
++		['#1146', 'stuck'], ['#1595', 'stuck'], ['#3082', 'lost'], ['Praveen', 'not_received'], ['#1098', 'not_received'], ['#2529', 'not_received']
++	]);
++	assert.equal(g[0].value, 3250 + 900 + 3977 + 32867.72 + 1950 + 998);
++	assert.deepEqual(g[1].rows.map((r) => r.label), ['#4000']);
++	const [a, , l, p, n, m] = g[0].rows;
++	assert.equal(ticketSub(a), 'No movement for 91 d · DTDC · RTO In Transit');
++	assert.equal(ticketSub(l), 'Courier says lost 18 Sep 2026 · Delhivery');
++	assert.equal(ticketSub(n), 'Marked delivered (no date), never arrived · DTDC');
++	assert.equal(ticketSub(m), 'Marked delivered 45 d ago, never arrived · DTDC');
++	assert.deepEqual(ticketPill(a), { label: 'Likely lost', tone: 'bad' });
++	assert.equal(p.orderName, 'Praveen');
++	assert.equal(p.nonDropy, true);
++	assert.equal(a.lastPlace, 'DELHI HUB, DELHI');
++	// setting can be changed: 5 days catches #2001
++	assert.ok(buildTickets(RTOS, CLAIMS, { ...DEFAULT_RULES, stuckDays: 5 }, NOW)[0].rows.some((r) => r.label === '#2001'));
++});
++
++test('ticket text: sections only for kinds present, numbered lines, asks, total; no company name', () => {
++	const rows = buildTickets(RTOS, CLAIMS, DEFAULT_RULES, NOW)[0].rows.filter((r) => ['#1146', '#3082', '#2529'].includes(r.label));
++	const t = ticketText(rows, 7);
++	assert.equal(t.subject, 'RTO stuck in transit / marked lost / marked delivered, not received: 3 shipments | Dropy');
++	assert.equal(t.body, [
++		'Hi Team,',
++		'',
++		'Please help with the RTO shipments below. They have not come back to our warehouse.',
++		'',
++		'A. RTO stuck in transit: no tracking update for 7+ days',
++		'1. #Dropy-1146 | AWB 7D1146 (DTDC) | last update 8 Jul 2026: "RTO In Transit" at DELHI HUB, DELHI (91 days ago) | ₹3,250',
++		'',
++		'B. Marked lost by the courier',
++		'1. #Dropy-3082 | AWB 7D3082 (Delhivery) | marked lost 18 Sep 2026 | ₹3,977',
++		'',
++		'C. Marked "RTO Delivered", but never received at our warehouse',
++		'1. #Dropy-2529 | AWB 7D2529 (DTDC) | marked delivered 22 Aug 2026 at 9:01 pm (45 days ago) | ₹998',
++		'',
++		'What we need within 48 hours:',
++		'- A: Trace each shipment and deliver it back to our warehouse, or confirm it as lost and settle it for the order value shown.',
++		'- B: Settle each claim for the order value shown and share the credit note number for each AWB.',
++		'- C: Share the POD for each AWB (receiver signature, delivery photo, receiver name and ID). If there is no POD, treat it as lost and settle it for the order value shown.',
++		'',
++		'Total order value: ₹8,225 across 3 shipments. Pre-dispatch packing videos are available for every shipment if needed.',
++		'',
++		'Thanks & Regards,',
++		'Team Dropy',
++		'support@dropy.in'
++	].join('\n'));
++	assert.ok(!/costech/i.test(t.body));
++
++	const one = ticketText(rows.slice(0, 1), 7);
++	assert.equal(one.subject, 'RTO stuck in transit: AWB 7D1146 | #Dropy-1146');
++	assert.match(one.body, /^Please help with the RTO shipment below\. It has not come back/m);
++	assert.match(one.body, /^RTO stuck in transit: no tracking update for 7\+ days$/m, 'no letter when one section');
++	assert.match(one.body, /^- Trace each shipment/m);
++});
++
++test('ticket ref clean-up', () => {
++	assert.equal(cleanTicketRef(' #106373 '), '#106373');
++	assert.equal(cleanTicketRef('106373'), '#106373');
++	assert.equal(cleanTicketRef('# 106373'), '#106373');
++	assert.equal(cleanTicketRef('SR-55 '), 'SR-55');
++	assert.equal(cleanTicketRef('  '), '');
++	assert.equal(cleanTicketRef(null), '');
++});
++
++test('needs action: stuck parcels flagged "Likely lost"; parcels on a ticket are not asked about again', () => {
++	const claims: Claim[] = [{ id: 'c', rto_id: '2529', reason: 'mdnd', status: 'raised', deadline_at: null, approved_at: null, outstanding: 998 }];
++	const items = needsAction(RTOS, claims, DEFAULT_RULES, NOW);
++	const stuck = items.find((i) => i.key === 'stuck-1146')!;
++	assert.equal(stuck.title, '#1146 likely lost');
++	assert.equal(stuck.detail, 'No movement since 8 Jul (RTO In Transit), raise a ticket');
++	assert.equal(stuck.ageDays, 91);
++	assert.equal(stuck.tone, 'bad');
++	assert.equal(actionGroup(stuck), 'lost');
++	assert.equal(actionWhat(stuck), 'Likely lost');
++	assert.ok(!items.some((i) => i.key === 'stuck-2001'), '6 days is not stuck yet');
++	assert.ok(!items.some((i) => i.rto?.id === '2529'), 'ticketed parcel left out');
++	assert.ok(items.some((i) => i.key === 'nd-1098'), 'others still listed');
++	assert.equal(rowFor(RTOS[0], NOW, DEFAULT_RULES).ageText, 'Last move 8 Jul · 91 d ago · likely lost');
++	assert.equal(rowFor(RTOS[2], NOW, DEFAULT_RULES).ageText, 'Last move 30 Sep · 6 d ago');
++});
++
++test('queue: ticket claims show as "Lost, ticket" with DRC status, not the panel dispute', () => {
++	const r = rto('3082', { stage: 'lost', disputes: [{ id: 'd', status: 'rejected', dispute_type: 'mdnd', raised_at: '2026-09-01T00:00:00Z' }] });
++	const q = buildQueue([r], [{ id: 'c', rto_id: '3082', reason: 'lost', status: 'raised', channel: 'support_ticket', ticket_ref: '#106373', claimed_amount: 3977,
++		deadline_at: null, raised_at: '2026-10-05T06:30:00Z', description: 'x', created_at: '2026-10-07T06:00:00Z' }], {}, DEFAULT_RULES, NOW);
++	assert.deepEqual(q.raised.map((x) => [x.sub, x.pill.label]), [['Lost, ticket · raised 5 Oct · #106373', 'Raised']]);
++});
++
++test('history wording for tickets', () => {
++	const ev = (payload: any) => ({ id: 1, source: 'user', kind: 'stage_change', payload, received_at: '2026-10-07T06:00:00Z' });
++	assert.equal(say(ev({ action: 'ticket_raised', from: 'in_flight', to: 'in_flight', args: { ticket_ref: '#106373', reason: 'lost', parcels: 3 } })).text,
++		'Courier ticket #106373 raised: lost or stuck (3 parcels on this ticket)');
++	assert.equal(say(ev({ action: 'ticket_raised', args: { ticket_ref: '#1', reason: 'mdnd', parcels: 1 }, undone: true })).text,
++		'Courier ticket #1 raised: not received (undone)');
++});
+-- 
+2.43.0
+

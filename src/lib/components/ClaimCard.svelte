@@ -3,7 +3,7 @@
 	import { dateShort, inr, num } from '#lib/dashboard.ts';
 	import { istTime } from '#lib/scanlog.ts';
 
-	interface ClaimRow { id: string; reason: string; status: string; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string }
+	interface ClaimRow { id: string; reason: string; status: string; channel?: string | null; ticket_url?: string | null; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string }
 	interface MediaRow { id: string; kind: string; drive_file_id: string }
 	let {
 		claim,
@@ -28,6 +28,7 @@
 	const st = $derived(claimStatus(claim.status));
 	const vType = $derived(velocityDisputeType(claim.reason));
 	const draft = $derived(claim.status === 'draft');
+	const ticket = $derived(claim.channel === 'support_ticket');
 	const byKind = (k: string) => media.find((m) => m.kind === k);
 	const photos = $derived(['front', 'back', 'label'].map((k) => [k, byKind(k)] as const).filter(([, m]) => !!m));
 	const orderName = $derived(/^\d+(-\d+)*$/.test(orderNo ?? '') ? `#Dropy-${orderNo}` : orderNo ?? '');
@@ -70,6 +71,28 @@
 	}
 </script>
 
+{#if ticket}
+<div class="card claim">
+	<div class="head">
+		<b>Courier ticket · {claim.reason === 'mdnd' ? 'Not received' : 'Lost or stuck'}</b>
+		<span class="pill p-{st.tone}">{st.label}</span>
+	</div>
+	<p class="small muted meta">
+		{inr(num(claim.claimed_amount))} (full order) ·
+		{#if claim.raised_at}Raised {dateShort(claim.raised_at)}{/if}
+		{#if claim.ticket_ref} · {#if claim.ticket_url}<a class="tref" href={claim.ticket_url} target="_blank" rel="noopener noreferrer">ticket {claim.ticket_ref} ↗</a>{:else}ticket {claim.ticket_ref}{/if}{/if}
+	</p>
+	<p class="small tnote">Follow up in the ticket. If the parcel turns up, scan it in as usual.</p>
+	{#if claim.description}
+		<details>
+			<summary class="small">Ticket text</summary>
+			<pre class="tt">{claim.description}</pre>
+			<button class="go" onclick={() => copy(claim.description ?? '', 'text')}>{copied === 'text' ? 'Copied ✓' : 'Copy text'}</button>
+		</details>
+	{/if}
+	{#if err}<p class="err" role="alert">{err}</p>{/if}
+</div>
+{:else}
 <div class="card claim">
 	<div class="head">
 		<b>RTO claim · {claimReasonLabel(claim.reason)}</b>
@@ -142,6 +165,7 @@
 	</details>
 	{#if err}<p class="err" role="alert">{err}</p>{/if}
 </div>
+{/if}
 
 <style>
 	.claim { border-color: var(--bad); }
@@ -170,5 +194,8 @@
 	.files .links a { text-transform: capitalize; }
 	input { height: 42px; flex: 1; min-width: 140px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; font-size: 14px; }
 	.sr { position: absolute; left: -9999px; }
+	.tref { color: var(--acc); font-weight: 700; }
+	.tnote { margin: 0 0 4px; }
+	.tt { white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 1.5; background: var(--sunk); border-radius: 12px; padding: 10px 12px; margin: 6px 0 8px; max-height: 320px; overflow: auto; }
 	.err { color: var(--bad); font-weight: 600; font-size: 13px; margin: 6px 0 0; }
 </style>

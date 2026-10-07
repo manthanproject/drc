@@ -3,7 +3,7 @@ import { DEFAULT_RULES, num, type Claim, type Rto, type Rules } from '#lib/dashb
 
 const RTO_COLS =
 	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, amount_collected, ' +
-	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, legacy_source, ' +
+	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, last_event_text, last_event_location, legacy_source, ' +
 	'reship_order_no, reship_awb, reship_created_at, reship_courier_status, reship_state, scanned_at, media_folder_id, refund_state, ' +
 	'disputes:courier_raw->shipment_disputes';
 
@@ -36,7 +36,7 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync }> 
 	const { data, error } = await db()
 		.from('settings')
 		.select('key, value')
-		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'velocity_last_sync']);
+		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'stuck_days', 'velocity_last_sync']);
 	if (error) throw new Error(`settings: ${error.message}`);
 	const get = (k: string) => data?.find((s) => s.key === k)?.value;
 	const pos = (v: unknown, d: number) => (num(v) > 0 ? num(v) : d);
@@ -44,7 +44,8 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync }> 
 		rules: {
 			mdndHours: pos(get('mdnd_hours'), DEFAULT_RULES.mdndHours),
 			delayedDays: pos(get('delayed_days'), DEFAULT_RULES.delayedDays),
-			windowDays: pos(get('dispute_window_days'), DEFAULT_RULES.windowDays)
+			windowDays: pos(get('dispute_window_days'), DEFAULT_RULES.windowDays),
+			stuckDays: pos(get('stuck_days'), DEFAULT_RULES.stuckDays)
 		},
 		lastSync: (get('velocity_last_sync') as LastSync) ?? null
 	};
