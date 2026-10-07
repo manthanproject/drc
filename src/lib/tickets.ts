@@ -1,6 +1,6 @@
 // Phase 4 auto-flags → courier tickets: parcels the panel dispute can't cover (stuck in transit, marked lost,
 // not received after the dispute window). One combined ticket per courier. Pure, tested.
-import { DAY, num, orderLabel, lastMove, isSheetOnly, isNonDropy, isStuck, type Rto, type Rules } from './dashboard.ts';
+import { DAY, num, orderLabel, lastMove, isSheetOnly, isNonDropy, isStuck, eventText, type Rto, type Rules } from './dashboard.ts';
 import { dateLong, dateTimeLong, carrierShort } from './claims.ts';
 
 export type TicketKind = 'stuck' | 'lost' | 'not_received';
@@ -65,7 +65,7 @@ export function ticketRow(r: TicketRto, kind: TicketKind, now: number): TicketRo
 		amount: num(r.order_value),
 		days: t === null ? null : daysSince(t, now),
 		at,
-		lastText: r.last_event_text ?? null,
+		lastText: eventText(r.last_event_text),
 		lastPlace: r.last_event_location ? r.last_event_location.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim() : null,
 		nonDropy: isNonDropy(r)
 	};

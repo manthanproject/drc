@@ -176,6 +176,12 @@ export function isDelayed(r: Rto, now: number, rules: Rules): boolean {
 	return t !== null && now - t >= rules.delayedDays * DAY;
 }
 
+/** Courier's last-event words, or null when it is only a raw status code (DTDC sends '261'). */
+export const eventText = (t: string | null | undefined): string | null => {
+	const s = String(t ?? '').replace(/\s+/g, ' ').trim();
+	return s && !/^[\d\s.\-/]+$/.test(s) ? s : null;
+};
+
 /** Coming back with no tracking movement for stuckDays+ (no date = can't tell, never flagged). */
 export function isStuck(r: Rto, now: number, rules: Rules): boolean {
 	if (r.stage !== 'in_flight' && r.stage !== 'delayed') return false;
@@ -269,7 +275,7 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 		if (isStuck(r, now, rules)) {
 			const t = lastMove(r)!;
 			push({ key: `stuck-${r.id}`, kind: 'stuck', rto: r, title: `${orderLabel(r)} likely lost`,
-				detail: `No movement since ${dateShort(new Date(t).toISOString())}${r.last_event_text ? ` (${r.last_event_text})` : ''}, raise a ticket`,
+				detail: `No movement since ${dateShort(new Date(t).toISOString())}${eventText(r.last_event_text) ? ` (${eventText(r.last_event_text)})` : ''}, raise a ticket`,
 				amount: num(r.order_value), ageDays: daysSince(t, now), ...windowFields(null, now) });
 		} else if (r.stage === 'awaiting_receipt') {
 			const t = ms(r.rto_delivered_at);

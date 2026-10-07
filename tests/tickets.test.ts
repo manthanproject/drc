@@ -15,7 +15,7 @@ const rto = (id: string, p: Partial<TicketRto> = {}) =>
 
 const RTOS = [
 	rto('1146', { last_movement_at: iso(91), order_value: 3250, last_event_text: 'RTO In Transit', last_event_location: 'DELHI  HUB ,DELHI' }),
-	rto('1595', { last_movement_at: iso(42), order_value: 900 }),
+	rto('1595', { last_movement_at: iso(42), order_value: 900, last_event_text: '261' }), // DTDC raw code: hidden
 	rto('2001', { last_movement_at: iso(6.9) }), // 6 d: not yet (7)
 	rto('2002', { last_movement_at: null }), // no date: can't tell
 	rto('3082', { stage: 'lost', last_movement_at: iso(19), order_value: 3977, carrier_name: 'Delhivery' }),
@@ -88,6 +88,12 @@ test('ticket text: sections only for kinds present, numbered lines, asks, total;
 	assert.match(one.body, /^Please help with the RTO shipment below\. It has not come back/m);
 	assert.match(one.body, /^RTO stuck in transit: no tracking update for 7\+ days$/m, 'no letter when one section');
 	assert.match(one.body, /^- Trace each shipment/m);
+});
+
+test('raw courier status codes are not shown as the last update', () => {
+	const g = buildTickets(RTOS, CLAIMS, DEFAULT_RULES, NOW)[0].rows;
+	assert.equal(ticketSub(g.find((r) => r.label === '#1595')!), 'No movement for 42 d · DTDC');
+	assert.match(ticketText(g.filter((r) => r.label === '#1595'), 7).body, /\| last update 26 Aug 2026 \(42 days ago\) \|/);
 });
 
 test('ticket ref clean-up', () => {
