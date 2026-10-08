@@ -283,6 +283,9 @@
 	table { width: 100%; border-collapse: collapse; font-size: 14px; }
 	th, td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: top; }
 	th { border-top: 0; font-size: 12.5px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+	th + th, td + td { border-left: 1px solid var(--line); }
+	thead th { background: var(--sunk); }
+	tr.sub > td { border-left: 0; }
 	td.num, th.num { text-align: right; white-space: nowrap; }
 	td.reason { min-width: 220px; max-width: 420px; }
 	tr.sel > td { background: var(--sunk); }
