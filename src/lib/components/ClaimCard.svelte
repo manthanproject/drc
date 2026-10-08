@@ -2,8 +2,10 @@
 	import { claimReasonLabel, claimStatus, velocityDisputeType, velocityOrderUrl, driveFileUrl, driveFolderUrl } from '#lib/claims.ts';
 	import { dateShort, inr, num } from '#lib/dashboard.ts';
 	import { istTime } from '#lib/scanlog.ts';
+	import FollowUpPanel from './FollowUpPanel.svelte';
+	import { FOLLOW_OPEN, type FollowClaim, type TextRto } from '#lib/followups.ts';
 
-	interface ClaimRow { id: string; reason: string; status: string; channel?: string | null; ticket_url?: string | null; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string }
+	type ClaimRow = FollowClaim & { id: string; reason: string; status: string; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string; close_result?: string | null; closed_at?: string | null };
 	interface MediaRow { id: string; kind: string; drive_file_id: string }
 	let {
 		claim,
@@ -11,8 +13,17 @@
 		folderId,
 		media,
 		packingUrl = null,
-		onraised
-	}: { claim: ClaimRow; orderNo: string | null; folderId: string | null; media: MediaRow[]; packingUrl?: string | null; onraised: (eventId: number) => void } = $props();
+		onraised,
+		rto = null,
+		followHours = 48,
+		onchanged
+	}: {
+		claim: ClaimRow; orderNo: string | null; folderId: string | null; media: MediaRow[]; packingUrl?: string | null; onraised: (eventId: number) => void;
+		/** Phase 5: with the RTO facts, an open raised claim shows its follow-up panel */
+		rto?: TextRto | null; followHours?: number; onchanged?: (eventId: number, text: string) => void;
+	} = $props();
+	const showFollow = $derived(!!rto && !!onchanged && FOLLOW_OPEN.has(claim.status));
+	const CLOSED: Record<string, string> = { credited_full: 'fully credited', short_paid_accepted: 'short-paid, accepted', withdrawn: 'withdrawn (parcel arrived)', rejected_final: 'rejected', written_off: 'written off' };
 
 	let text = $state('');
 	let saved = $state('');
@@ -82,7 +93,9 @@
 		{#if claim.raised_at}Raised {dateShort(claim.raised_at)}{/if}
 		{#if claim.ticket_ref} · {#if claim.ticket_url}<a class="tref" href={claim.ticket_url} target="_blank" rel="noopener noreferrer">ticket {claim.ticket_ref} ↗</a>{:else}ticket {claim.ticket_ref}{/if}{/if}
 	</p>
-	<p class="small tnote">Follow up in the ticket. If the parcel turns up, scan it in as usual.</p>
+	{#if claim.status === 'closed' && claim.close_result}<p class="small muted tnote">Closed: {CLOSED[claim.close_result] ?? claim.close_result}{claim.closed_at ? `, ${dateShort(claim.closed_at)}` : ''}</p>
+	{:else if !showFollow}<p class="small tnote">Follow up in the ticket. If the parcel turns up, scan it in as usual.</p>{/if}
+	{#if showFollow}<FollowUpPanel {claim} rto={rto!} {followHours} {packingUrl} ondone={onchanged!} />{/if}
 	{#if claim.description}
 		<details>
 			<summary class="small">Ticket text</summary>
@@ -103,6 +116,8 @@
 		{#if claim.raised_at}Raised {dateShort(claim.raised_at)}, {istTime(claim.raised_at)}{claim.ticket_ref ? ` · ref ${claim.ticket_ref}` : ''}
 		{:else}Made {dateShort(claim.created_at)}{claim.deadline_at ? ` · window to ${dateShort(claim.deadline_at)}` : ''}{/if}
 	</p>
+	{#if claim.status === 'closed' && claim.close_result}<p class="small muted meta">Closed: {CLOSED[claim.close_result] ?? claim.close_result}{claim.closed_at ? `, ${dateShort(claim.closed_at)}` : ''}</p>{/if}
+	{#if showFollow}<FollowUpPanel {claim} rto={rto!} {followHours} {packingUrl} ondone={onchanged!} />{/if}
 
 	<details open={draft}>
 		<summary class="small">{draft ? 'Raise it in Velocity' : 'Remarks and evidence'}</summary>

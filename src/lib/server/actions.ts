@@ -35,6 +35,10 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_HAS_CLAIM: [409, 'One of these parcels already has an open claim or ticket. Refresh the page'],
 	DRC_BAD_DATE: [400, 'Raised date must be today or earlier'],
 	DRC_TICKET_CHANGED: [409, 'The ticket was already updated, so it cannot be undone here'],
+	DRC_CLAIM_NOT_OPEN: [409, 'This claim is not open any more. Refresh the page'],
+	DRC_HAS_CREDIT: [409, 'Money is already linked to this claim, so it cannot be withdrawn'],
+	DRC_BAD_AMOUNT: [400, 'Type a valid amount'],
+	DRC_CN_REQUIRED: [400, 'Type the credit note number'],
 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
 };
 

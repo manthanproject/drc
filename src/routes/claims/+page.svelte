@@ -124,6 +124,10 @@
 		await invalidateAll();
 		if (next) sel = next;
 	}
+	async function changed(eventId: number, text: string) {
+		undo = { text: `${row?.label ?? 'Claim'}: ${text}`, eventId };
+		await invalidateAll();
+	}
 	async function undoDone() {
 		undo = null;
 		await invalidateAll();
@@ -142,6 +146,7 @@
 		<div class="head">
 			<h1 class="desk-only">Disputes to raise</h1>
 			<span class="pill {q.totals.n ? 'p-bad' : 'p-ok'}">{q.totals.n ? `${q.totals.n} to raise · ${inr(q.totals.value)}` : 'Nothing to raise'}</span>
+			{#if q.toFollow}<span class="pill p-warn">{q.toFollow} to follow up</span>{/if}
 			{#if ticketN}<span class="pill p-warn">{ticketN} for a ticket · {inr(ticketValue)}</span>{/if}
 		</div>
 		<p class="lead muted">Every claim ready to paste into Velocity. Raise one, mark it raised, the next one opens.</p>
@@ -158,6 +163,15 @@
 				{:else}
 					<p class="small muted empty">Nothing waiting to be raised.</p>
 				{/each}
+				{#if q.raised.length}
+					<div class="sec">RAISED · FOLLOW UP</div>
+					{#each q.raised as r (r.key)}
+						<button class="qrow" class:on={sel === r.rtoId} onclick={() => pick(r)}>
+							<span class="l1"><b>{r.label}</b><b class="money">{inr(r.amount)}</b></span>
+							<span class="l2"><span class="muted">{r.sub}</span><span class="pill p-{r.pill.tone}">{r.pill.label}</span></span>
+						</button>
+					{/each}
+				{/if}
 				{#each data.tickets as g (g.courier)}
 					{@const all = g.rows.every((r) => ticked.includes(r.rtoId))}
 					<div class="sec tsec">
@@ -177,15 +191,6 @@
 					{/each}
 				{/each}
 
-				{#if q.raised.length}
-					<div class="sec">RAISED · FOLLOW UP</div>
-					{#each q.raised as r (r.key)}
-						<button class="qrow" class:on={sel === r.rtoId} onclick={() => pick(r)}>
-							<span class="l1"><b>{r.label}</b><b class="money">{inr(r.amount)}</b></span>
-							<span class="l2"><span class="muted">{r.sub}</span><span class="pill p-{r.pill.tone}">{r.pill.label}</span></span>
-						</button>
-					{/each}
-				{/if}
 			</div>
 
 			<div class="pane" bind:this={paneEl}>
@@ -200,7 +205,8 @@
 					</div>
 					{#if claim}
 						{#key claim.id}
-							<ClaimCard {claim} orderNo={info.order_no} folderId={info.media_folder_id} {media} packingUrl={packing[row.rtoId] ?? null} onraised={raised} />
+							<ClaimCard {claim} orderNo={info.order_no} folderId={info.media_folder_id} {media} packingUrl={packing[row.rtoId] ?? null} onraised={raised}
+								rto={info} followHours={data.rules.followHours} onchanged={changed} />
 						{/key}
 					{:else if row.kind === 'mdnd'}
 						<div class="card mdnd">

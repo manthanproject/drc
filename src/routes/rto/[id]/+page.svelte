@@ -4,6 +4,7 @@
 	import { rtoReturnedDraft } from '#lib/messages.ts';
 	import { safePath, claimHref, undoFromUrl } from '#lib/scan.ts';
 	import ClaimCard from '#lib/components/ClaimCard.svelte';
+	import { mdndWaitHours } from '#lib/dashboard.ts';
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
@@ -105,6 +106,10 @@
 		undo = { text: 'Claim marked raised', eventId };
 		await invalidateAll();
 	}
+	async function changed(eventId: number, text: string) {
+		undo = { text, eventId };
+		await invalidateAll();
+	}
 	async function undoDone() {
 		undo = null;
 		await invalidateAll();
@@ -159,7 +164,7 @@
 
 		<div class="right">
 		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
-		{#if r.stage === 'awaiting_receipt' && !openClaim && r.courier && r.rto_delivered_at && Date.now() - Date.parse(r.rto_delivered_at) > 48 * 3_600_000}
+		{#if r.stage === 'awaiting_receipt' && !openClaim && r.courier && r.rto_delivered_at && Date.now() - Date.parse(r.rto_delivered_at) > mdndWaitHours(r, DEFAULT_RULES) * 3_600_000}
 			<div class="card o-claim mdndhint">
 				<b>Not received?</b>
 				<p class="small muted">The courier marked it delivered back on {dateShort(r.rto_delivered_at)}. If it is not in the warehouse, draft an MDND dispute.</p>
@@ -167,7 +172,7 @@
 			</div>
 		{/if}
 				{#each claims as c (c.id)}
-			<div class="o-claim"><ClaimCard claim={c} orderNo={r.order_no} folderId={r.media_folder_id} media={data.media} packingUrl={packing?.state === 'found' ? packing.url : null} onraised={raised} /></div>
+			<div class="o-claim"><ClaimCard claim={c} orderNo={r.order_no} folderId={r.media_folder_id} media={data.media} packingUrl={packing?.state === 'found' ? packing.url : null} onraised={raised} rto={r} followHours={data.followHours} onchanged={changed} /></div>
 		{/each}
 		{#if disputes.length}
 			<div class="card o-dispute">

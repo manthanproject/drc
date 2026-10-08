@@ -1,5 +1,5 @@
 // Human wording for the events log (RTO detail → History). Pure, tested.
-import { BUCKETS, bucketOfStage, dateShort, disputeStatus, disputeType } from './dashboard.ts';
+import { BUCKETS, bucketOfStage, dateShort, disputeStatus, disputeType, inr } from './dashboard.ts';
 import { reasonOf } from './claims.ts';
 
 export interface EventRow {
@@ -42,6 +42,16 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 				const n = Number(p.args?.parcels ?? 1);
 				text = `Courier ticket ${p.args?.ticket_ref ?? ''} raised: ${p.args?.reason === 'mdnd' ? 'not received' : 'lost or stuck'}${n > 1 ? ` (${n} parcels on this ticket)` : ''}`;
 			}
+			if (p.action === 'claim_follow_up') {
+				const n = Number(p.args?.n ?? 1);
+				const nth = n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+				text = `Followed up (${nth} time)${p.args?.ticket_ref ? ` on ticket ${p.args.ticket_ref}` : ''}`;
+			}
+			if (p.action === 'claim_escalated') text = `Rejected dispute escalated${p.args?.ticket_ref ? ` (ticket ${p.args.ticket_ref})` : ''}`;
+			if (p.action === 'claim_withdrawn') text = 'Claim withdrawn';
+			if (p.action === 'claim_approved') text = `Claim approved${p.args?.amount ? ` (${inr(Number(p.args.amount))})` : ''}`;
+			if (p.action === 'claim_credited')
+				text = `Credit ${p.args?.ticket_ref ?? ''} ${inr(Number(p.args?.amount ?? 0))} received, claim closed${p.args?.result === 'short_paid_accepted' ? ' (short-paid)' : ''}`;
 			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
 			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;

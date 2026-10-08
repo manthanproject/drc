@@ -134,7 +134,7 @@ test('queue: ticket claims show as "Lost, ticket" with DRC status, not the panel
 	const r = rto('3082', { stage: 'lost', disputes: [{ id: 'd', status: 'rejected', dispute_type: 'mdnd', raised_at: '2026-09-01T00:00:00Z' }] });
 	const q = buildQueue([r], [{ id: 'c', rto_id: '3082', reason: 'lost', status: 'raised', channel: 'support_ticket', ticket_ref: '#106373', claimed_amount: 3977,
 		deadline_at: null, raised_at: '2026-10-05T06:30:00Z', description: 'x', created_at: '2026-10-07T06:00:00Z' }], {}, DEFAULT_RULES, NOW);
-	assert.deepEqual(q.raised.map((x) => [x.sub, x.pill.label]), [['Lost, ticket · raised 5 Oct · #106373', 'Raised']]);
+	assert.deepEqual(q.raised.map((x) => [x.sub, x.pill.label]), [['Lost, ticket · raised 5 Oct · #106373', 'Follow up now']]);
 });
 
 test('history wording for tickets', () => {

@@ -86,11 +86,11 @@ add({ stage: 'lost', courier_status: 'lost', order_no: '3082', order_value: 3977
 // Velocity disputes as the real API returned them on 6 Oct (status "raised" = panel "In Review")
 for (const [o, at] of [['2731', '2026-10-04T19:55:03.252+05:30'], ['3536', '2026-10-04T19:54:50.852+05:30']]) {
 	const r = rows.find((x) => x.order_no === o);
-	if (r) { r.stage = 'claim'; r.disputes = [{ id: `d-${o}`, images: [], reason: `RTO for order #Dropy-${o} is marked "RTO Delivered" on 29 Sep 2026 21:01 IST, but it has not been received at our warehouse. Please share POD within 48 hours, or treat it as lost and settle the claim.`, status: 'raised', raised_at: at, dispute_type: 'mdnd' }]; }
+	if (r) { r.stage = 'claim'; r.disputes = [{ id: `d-${o}`, images: [], reason: `RTO for order #Dropy-${o} is marked "RTO Delivered" on 29 Sep 2026 21:01 IST, but it has not been received at our warehouse. Please share POD within 48 hours, or treat it as lost and settle the claim.`, status: o === '3536' ? 'rejected' : 'raised', raised_at: at, dispute_type: 'mdnd' }]; }
 }
 
 const settings = [
-	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 }, { key: 'stuck_days', value: 7 },
+	{ key: 'mdnd_hours', value: 48 }, { key: 'delayed_days', value: 3 }, { key: 'dispute_window_days', value: 7 }, { key: 'stuck_days', value: 7 }, { key: 'follow_up_hours', value: 48 }, { key: 'mdnd_hours_dtdc', value: 72 },
 	{ key: 'velocity_last_sync', value: { ok: true, at: new Date(NOW - 6 * 60_000).toISOString(), fetched: { unique: 206 } } }
 ];
 const rtoItems = rows.map((r, i) => ({ id: `item-${i}`, rto_id: r.id, sku: `SKU-${r.order_no}`, title: `Item of #${r.order_no}`, qty: 1, is_gift: false, ready_stock_state: 'na' }));
@@ -206,10 +206,32 @@ function mockStock({ p_action, p_args }) {
 	r.refund_state = to;
 	return [200, { event_id: id, refund_state: to }];
 }
+const SNAP = ['status', 'raised_at', 'ticket_ref', 'ticket_url', 'description', 'notes', 'approved_at', 'approved_amount', 'closed_at', 'close_result', 'next_follow_up_at', 'follow_ups', 'last_follow_up_at', 'escalated_at'];
+const snap = (c) => Object.fromEntries(SNAP.map((k) => [k, c[k] ?? (k === 'follow_ups' ? 0 : null)]));
 function mockClaimAction({ p_claim, p_action, p_args = {} }) {
 	const c = claims.find((x) => x.id === p_claim);
 	if (!c) return [400, { message: 'DRC_NOT_FOUND' }];
 	if (p_action === 'save_text') { c.description = p_args.description; return [200, { claim_id: c.id, status: c.status }]; }
+	const OPEN5 = ['raised', 'waiting', 'escalated', 'approved'];
+	const next = new Date(Date.now() + 48 * 3_600_000).toISOString();
+	const ev = (x, action, extra = {}) => { const r = rows.find((y) => y.id === x.rto_id); const id = ++eventId;
+		events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action, from: r.stage, to: r.stage, before: { stage: r.stage }, claim: { op: 'update', id: x.id, claim_before: x._before }, args: p_args, ...extra } }); return id; };
+	if (p_action === 'follow_up') {
+		if (!OPEN5.includes(c.status)) return [400, { message: 'DRC_CLAIM_NOT_OPEN' }];
+		const group = c.channel === 'support_ticket' && c.ticket_ref ? claims.filter((x) => x.channel === 'support_ticket' && x.ticket_ref === c.ticket_ref && OPEN5.includes(x.status)) : [c];
+		const batch = `fb${++eventId}`; let first = null;
+		for (const x of group) { x._before = snap(x); x.follow_ups = (x.follow_ups ?? 0) + 1; x.last_follow_up_at = new Date().toISOString(); x.next_follow_up_at = next; const id = ev(x, 'claim_follow_up', { batch }); first ??= id; }
+		return [200, { event_id: first, claim_id: c.id, status: c.status, n: group.length }];
+	}
+	if (['escalate', 'withdraw', 'approved', 'credited'].includes(p_action)) {
+		c._before = snap(c);
+		if (p_action === 'escalate') { if (!p_args.ticket_ref) return [400, { message: 'DRC_TICKET_REF_REQUIRED' }]; const ref = String(p_args.ticket_ref).replace(/^#/, ''); Object.assign(c, { status: 'escalated', escalated_at: new Date().toISOString(), ticket_ref: /^\d+$/.test(ref) ? `#${ref}` : ref, next_follow_up_at: next, description: p_args.description ?? c.description }); }
+		if (p_action === 'withdraw') Object.assign(c, { status: 'closed', close_result: 'withdrawn', closed_at: new Date().toISOString() });
+		if (p_action === 'approved') { if (!OPEN5.slice(0, 3).includes(c.status)) return [400, { message: 'DRC_CLAIM_NOT_OPEN' }]; Object.assign(c, { status: 'approved', approved_at: new Date().toISOString(), approved_amount: Number(p_args.approved_amount ?? c.claimed_amount), next_follow_up_at: next }); }
+		if (p_action === 'credited') { if (!p_args.ticket_ref) return [400, { message: 'DRC_CN_REQUIRED' }]; const target = Number(c.approved_amount ?? c.expected_amount ?? c.claimed_amount); Object.assign(c, { status: 'closed', close_result: Number(p_args.amount) >= target ? 'credited_full' : 'short_paid_accepted', closed_at: new Date().toISOString() }); const m = claimMoney.find((x) => x.claim_id === c.id); if (m) m.outstanding = Math.max(0, target - Number(p_args.amount)); }
+		const id = ev(c, `claim_${{ escalate: 'escalated', withdraw: 'withdrawn', approved: 'approved', credited: 'credited' }[p_action]}`);
+		return [200, { event_id: id, claim_id: c.id, status: c.status }];
+	}
 	if (c.status !== 'draft') return [400, { message: 'DRC_CLAIM_NOT_DRAFT' }];
 	const claim_before = { status: c.status, raised_at: c.raised_at, ticket_ref: c.ticket_ref, description: c.description };
 	Object.assign(c, { status: 'raised', raised_at: new Date().toISOString(), ticket_ref: p_args.ticket_ref ?? c.ticket_ref, description: p_args.description ?? c.description });
@@ -246,7 +268,7 @@ function mockUndo({ p_event }) {
 	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
 	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
 	if (e.payload.undone) return [400, { message: 'DRC_ALREADY_UNDONE' }];
-	if (e.payload.batch) {
+	if (e.payload.batch && e.payload.claim?.op === 'ticket') {
 		const sib = events.filter((x) => x.kind === 'stage_change' && x.payload.batch === e.payload.batch && !x.payload.undone);
 		for (const x of sib) {
 			const i = claims.findIndex((c) => c.id === x.payload.claim.id);
@@ -266,6 +288,11 @@ function mockUndo({ p_event }) {
 		claims.splice(claims.indexOf(c), 1);
 	}
 	if (cl?.op === 'raise') Object.assign(claims.find((x) => x.id === cl.id), cl.claim_before);
+	if (cl?.op === 'update') {
+		const sib = e.payload.batch ? events.filter((x) => x.payload?.batch === e.payload.batch && !x.payload.undone) : [e];
+		for (const x of sib) { Object.assign(claims.find((y) => y.id === x.payload.claim.id), x.payload.claim.claim_before); x.payload.undone = true; }
+		return [200, { rto_id: e.rto_id, stage: r.stage, n: sib.length }];
+	}
 	if (e.payload.item_before) Object.assign(rtoItems.find((i) => i.id === e.payload.item_before.id), e.payload.item_before);
 	Object.assign(r, e.payload.before);
 	e.payload.undone = true;

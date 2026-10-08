@@ -48,6 +48,16 @@ export interface ClaimRow {
 	raised_at: string | null;
 	description: string | null;
 	created_at: string;
+	rto_id: string;
+	expected_amount?: number | string | null;
+	approved_amount?: number | string | null;
+	approved_at?: string | null;
+	next_follow_up_at?: string | null;
+	follow_ups?: number | null;
+	last_follow_up_at?: string | null;
+	escalated_at?: string | null;
+	close_result?: string | null;
+	closed_at?: string | null;
 }
 
 export interface MediaRow {
@@ -67,7 +77,7 @@ export async function getRtoDetail(id: string) {
 		db().from('rtos').select(COLS).eq('id', id).maybeSingle(),
 		db().from('rto_items').select('id, sku, title, qty, is_gift, ready_stock_state, condition').eq('rto_id', id).order('is_gift').order('title'),
 		db().from('events').select('id, source, kind, payload, received_at').eq('rto_id', id).order('id', { ascending: false }).limit(40),
-		db().from('claims').select('id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, deadline_at, raised_at, description, created_at').eq('rto_id', id).order('created_at', { ascending: false }),
+		db().from('claims').select('id, rto_id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, expected_amount, approved_amount, approved_at, next_follow_up_at, follow_ups, last_follow_up_at, escalated_at, close_result, closed_at, deadline_at, raised_at, description, created_at').eq('rto_id', id).order('created_at', { ascending: false }),
 		db().from('rto_media').select('id, kind, drive_file_id, mime_type, size_bytes, uploaded_at').eq('rto_id', id).is('trashed_at', null).order('uploaded_at')
 	]);
 	if (r.error) throw new Error(`rtos: ${r.error.message}`);
@@ -76,13 +86,16 @@ export async function getRtoDetail(id: string) {
 	if (events.error) throw new Error(`events: ${events.error.message}`);
 	if (claims.error) throw new Error(`claims: ${claims.error.message}`);
 	if (media.error) throw new Error(`rto_media: ${media.error.message}`);
-	const { data: maxCalls } = await db().from('settings').select('value').eq('key', 'max_call_attempts').maybeSingle();
+	const { data: set } = await db().from('settings').select('key, value').in('key', ['max_call_attempts', 'follow_up_hours']);
+	const maxCalls = set?.find((s) => s.key === 'max_call_attempts');
+	const followHours = Number(set?.find((s) => s.key === 'follow_up_hours')?.value) > 0 ? Number(set?.find((s) => s.key === 'follow_up_hours')?.value) : 48;
 	return {
 		rto: r.data as unknown as RtoFull,
 		items: ((items.data ?? []) as Item[]).filter((i) => !isDummyItem(i)), // hide Velocity's "Pay on Delivery" line
 		claims: (claims.data ?? []) as ClaimRow[],
 		media: (media.data ?? []) as MediaRow[],
 		events: (events.data ?? []) as EventRow[],
-		maxCalls: Number(maxCalls?.value) > 0 ? Number(maxCalls?.value) : 3
+		maxCalls: Number(maxCalls?.value) > 0 ? Number(maxCalls?.value) : 3,
+		followHours
 	};
 }

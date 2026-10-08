@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	DAY, DEFAULT_RULES as R, buildDashboard, bucketOf, needsAction, listRows, matchesSearch,
-	trackingUrl, isNonDropy, windowText, ageText, syncState, inr, dateShort, type Rto, type Claim
-} from '../src/lib/dashboard.ts';
+	trackingUrl, isNonDropy, windowText, ageText, syncState, inr, dateShort, type Rto, type Claim, orderLabel, actionWhat } from '../src/lib/dashboard.ts';
 
 const NOW = Date.parse('2026-10-04T12:00:00Z');
 const ago = (d: number) => new Date(NOW - d * DAY).toISOString();
@@ -49,7 +48,7 @@ test('MDND only after 48 h; no-date awaiting still listed', () => {
 });
 
 test('urgency: open windows soonest first, then the rest by ₹ (Q3)', () => {
-	const w5 = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(2), order_value: 100 }); // 5 d left
+	const w5 = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(3.5), order_value: 100 }); // 3 d left (DTDC: flagged after 72 h)
 	const w1 = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(6), order_value: 50 }); // 1 d left
 	const closedBig = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(20), order_value: 9000 });
 	const closedSmall = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(30), order_value: 200 });
@@ -76,16 +75,44 @@ test('claims box: stage claim, ₹ = order value until a claim row exists', () =
 	assert.deepEqual(d.claims, { n: 2, atStake: 2500 + 3828 });
 });
 
-test('credit due + claim window from claims table', () => {
+test('credit due + follow-up (Phase 5) + draft window from claims table', () => {
 	const a = rto({ stage: 'claim' });
+	const b = rto({ stage: 'claim' });
 	const claims: Claim[] = [
 		{ id: 'c1', rto_id: a.id, reason: 'lost', status: 'approved', deadline_at: null, approved_at: ago(10), outstanding: 2500 },
-		{ id: 'c2', rto_id: a.id, reason: 'damaged', status: 'raised', deadline_at: new Date(NOW + 2.5 * DAY).toISOString(), approved_at: null, outstanding: 3828 }
+		{ id: 'c2', rto_id: a.id, reason: 'damaged', status: 'raised', deadline_at: new Date(NOW + 2.5 * DAY).toISOString(), approved_at: null, raised_at: ago(3), outstanding: 3828 },
+		{ id: 'c3', rto_id: b.id, reason: 'mdnd', status: 'draft', deadline_at: new Date(NOW + 2.5 * DAY).toISOString(), approved_at: null, outstanding: 900 },
+		{ id: 'c4', rto_id: b.id, reason: 'mdnd', status: 'raised', deadline_at: null, approved_at: null, raised_at: ago(1), outstanding: 900 }
 	];
-	const d = buildDashboard([a], claims, R, NOW);
+	const d = buildDashboard([a, b], claims, R, NOW);
 	assert.deepEqual(d.creditDue, { n: 1, value: 2500 });
-	assert.deepEqual(d.action.map((i) => i.kind), ['claim_window', 'credit_due']);
+	assert.deepEqual(d.action.map((i) => i.kind), ['claim_window', 'follow_up', 'credit_due'], 'raised 1 d ago: not due yet');
 	assert.equal(windowText(d.action[0]), '2 d left');
+	assert.equal(d.action[1].detail, `Raised ${dateShort(ago(3))}, no update yet`);
+	assert.equal(actionWhat(d.action[1]), 'Follow up');
+});
+
+test('DTDC waits 72 h before MDND, others 48 h (Phase 5)', () => {
+	const dtdc = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(2.5), carrier_name: 'DTDC Standard 250G' });
+	const dl = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(2.5), carrier_name: 'Delhivery' });
+	assert.deepEqual(needsAction([dtdc, dl], [], R, NOW).map((i) => i.rto!.id), [dl.id]);
+	assert.equal(needsAction([dtdc], [], R, NOW + DAY).length, 1);
+});
+
+test('follow-ups: rejected dispute → escalate; one item per courier ticket', () => {
+	const r = rto({ stage: 'claim', disputes: [{ id: 'd', status: 'rejected', dispute_type: 'mdnd', raised_at: ago(4) }] });
+	const t1 = rto({ stage: 'in_flight' });
+	const t2 = rto({ stage: 'lost' });
+	const items = needsAction([r, t1, t2], [
+		{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: null, approved_at: null, raised_at: ago(4), outstanding: 1158 },
+		{ id: 'k1', rto_id: t1.id, reason: 'lost', status: 'raised', channel: 'support_ticket', ticket_ref: '#106500', deadline_at: null, approved_at: null, raised_at: ago(3), outstanding: 1000 },
+		{ id: 'k2', rto_id: t2.id, reason: 'lost', status: 'raised', channel: 'support_ticket', ticket_ref: '#106500', deadline_at: null, approved_at: null, raised_at: ago(3), outstanding: 2000 }
+	], R, NOW);
+	assert.deepEqual(items.map((i) => [i.kind, i.title, i.detail, i.amount]), [
+		['follow_up', 'Ticket #106500 follow up', `2 parcels · no update since ${dateShort(ago(3))}`, 3000],
+		['rejected', `${orderLabel(r)} dispute rejected`, 'Velocity rejected it: escalate with a ticket', 1158]
+	]);
+	assert.equal(items[1].tone, 'bad');
 });
 
 test('sheet-only rows are not tappable (C); velocity rows link to tracking', () => {
@@ -177,6 +204,6 @@ test('Velocity dispute status (real 6 Oct data: status "raised" = panel "In Revi
 		{ id: 'b', status: 'raised', dispute_type: 'mdnd', raised_at: '2026-10-04T19:54:09.731+05:30' }
 	] });
 	assert.equal(latestDispute(r)?.id, 'b');
-	const [i] = needsAction([r], [{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: '2026-10-04T14:24:00Z', outstanding: 100 }], R, NOW);
-	assert.equal(i.detail, 'Velocity: In Review · Follow up by 6 Oct');
+	// latest is "raised" (not the older rejected one), raised 4 Oct 14:24 UTC → follow up 6 Oct, nothing to do yet
+	assert.equal(needsAction([r], [{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: '2026-10-04T14:24:00Z', outstanding: 100 }], R, NOW).length, 0);
 });

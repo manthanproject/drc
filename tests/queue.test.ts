@@ -17,7 +17,7 @@ test('queue: drafts + MDND candidates, most urgent first; raised listed separate
 	const rtos = [
 		rto('1', { stage: 'claim' }),                        // draft claim, media 3 of 4
 		rto('2', { stage: 'claim', order_value: 5000 }),     // MDND draft, closes sooner
-		rto('3', { rto_delivered_at: iso(60), order_value: 3000 }), // MDND candidate: 2.5 d → 4 d left
+		rto('3', { rto_delivered_at: iso(80), order_value: 3000 }), // MDND candidate: DTDC past 72 h → 3 d left
 		rto('4', { rto_delivered_at: iso(20) }),             // < 48 h: not yet
 		rto('5', { rto_delivered_at: iso(24 * 9) }),         // window closed → older
 		rto('6', { rto_delivered_at: null }),                // no date → older
@@ -35,9 +35,10 @@ test('queue: drafts + MDND candidates, most urgent first; raised listed separate
 	assert.deepEqual(q.toRaise.map((r) => [r.label, r.kind, r.sub, r.pill.label]), [
 		['#2', 'draft', 'MDND · window closes today', 'Ready'],
 		['#1', 'draft', 'Wrong product · 3 d left', 'Media 3 of 4'],
-		['#3', 'mdnd', 'Not received (MDND) · 4 d left', 'Draft it']
+		['#3', 'mdnd', 'Not received (MDND) · 3 d left', 'Draft it']
 	]);
-	assert.deepEqual(q.raised.map((r) => [r.label, r.sub, r.pill.label]), [['#8', 'MDND · raised 4 Oct · #106500', 'In Review']]);
+	assert.deepEqual(q.raised.map((r) => [r.label, r.sub, r.pill.label]), [['#8', 'MDND · raised 4 Oct · #106500 · Velocity: In Review', 'Follow up now']]);
+	assert.equal(q.toFollow, 1);
 	assert.equal(q.olderNotReceived, 2);
 	assert.deepEqual(q.totals, { n: 3, value: 5000 + 2000 + 3000 });
 });

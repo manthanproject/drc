@@ -165,15 +165,29 @@ export async function createMdndDraft(rtoId: string) {
 	return { ...(data as { event_id: number; claim_id: string; from: string; to: string }), bulk: bulk?.count ?? 0, packing: !!packing };
 }
 
-/** 'raise' (Draft → Raised, optional ticket ref, final remarks) or 'save_text'. */
+const CLAIM_ACTIONS = ['raise', 'save_text', 'follow_up', 'escalate', 'withdraw', 'approved', 'credited'] as const;
+
+/** 'raise' / 'save_text' (Phase 3), and Phase 5 follow-ups: 'follow_up', 'escalate', 'withdraw', 'approved', 'credited'. */
 export async function claimAction(claimId: string, raw: unknown) {
 	if (!UUID.test(claimId)) error(404, 'Claim not found');
 	const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-	const action = b.action === 'raise' || b.action === 'save_text' ? b.action : null;
+	const action = (CLAIM_ACTIONS as readonly unknown[]).includes(b.action) ? (b.action as string) : null;
 	if (!action) error(400, 'Unknown action');
 	const args: Record<string, string> = {};
-	if (typeof b.description === 'string' && b.description.trim()) args.description = b.description.trim().slice(0, 4000);
+	if (typeof b.description === 'string' && b.description.trim()) args.description = b.description.trim().slice(0, 8000);
 	if (typeof b.ticket_ref === 'string' && b.ticket_ref.trim()) args.ticket_ref = b.ticket_ref.trim().slice(0, 80);
+	if (typeof b.note === 'string' && b.note.trim()) args.note = b.note.trim().slice(0, 300);
+	const money = (v: unknown) => {
+		const n = Number(String(v ?? '').replace(/[₹,\s]/g, ''));
+		return Number.isFinite(n) && n > 0 ? String(Math.round(n * 100) / 100) : null;
+	};
+	if (action === 'approved' && money(b.approved_amount)) args.approved_amount = money(b.approved_amount)!;
+	if (action === 'credited') {
+		const amt = money(b.amount);
+		if (!amt) error(400, 'Type the credit amount');
+		args.amount = amt;
+		if (typeof b.credit_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.credit_date)) args.credit_date = b.credit_date;
+	}
 	const { data, error: e } = await db().rpc('claim_action', { p_claim: claimId, p_action: action, p_args: args });
 	if (e) fail(e.message);
 	return data as { event_id?: number; claim_id: string; status: string };

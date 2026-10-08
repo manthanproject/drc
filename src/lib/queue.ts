@@ -1,8 +1,9 @@
 // Disputes queue (Phase 3d, PC screen 6): everything to raise with the courier, most urgent first. Pure, tested.
-import { DAY, num, orderLabel, dateShort, latestDispute, disputeStatus, type Rto, type Rules } from './dashboard.ts';
-import { claimReasonLabel, claimStatus } from './claims.ts';
+import { DAY, num, orderLabel, dateShort, mdndWaitHours, latestDispute, disputeStatus, type Rto, type Rules } from './dashboard.ts';
+import { followState, FOLLOW_ORDER, type FollowClaim, type FollowKind } from './followups.ts';
+import { claimReasonLabel } from './claims.ts';
 
-export interface QueueClaim {
+export interface QueueClaim extends FollowClaim {
 	id: string;
 	rto_id: string;
 	reason: string;
@@ -29,6 +30,8 @@ export interface QueueRow {
 	pill: { label: string; tone: Tone };
 	deadline: number | null;
 	raisedAt: number | null;
+	/** raised claims: where the follow-up stands (Phase 5) */
+	follow?: FollowKind;
 }
 
 export interface Queue {
@@ -37,9 +40,11 @@ export interface Queue {
 	/** Not received, but the dispute window has closed or there is no courier date: check them on Home. */
 	olderNotReceived: number;
 	totals: { n: number; value: number };
+	/** raised claims that need you now: rejected, follow-up due, courier approved */
+	toFollow: number;
 }
 
-const OPEN = new Set(['draft', 'raised', 'waiting', 'escalated']);
+const OPEN = new Set(['draft', 'raised', 'waiting', 'escalated', 'approved']);
 const ms = (iso: string | null | undefined) => {
 	const t = iso ? Date.parse(iso) : NaN;
 	return Number.isNaN(t) ? null : t;
@@ -80,14 +85,16 @@ export function buildQueue(
 			});
 		} else if (OPEN.has(c.status)) {
 			const ticket = c.channel === 'support_ticket';
-			// a courier ticket is not a panel dispute: its status is DRC's, not Velocity's dispute tab
-			const d = ticket ? null : latestDispute(r);
-			const st = d ? disputeStatus(d.status) : claimStatus(c.status);
+			// Phase 5: the pill says what to do next (Velocity's dispute status for panel disputes is inside followState)
+			const st = followState(c, r, rules, now)!;
 			const why = ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : 'Lost, ticket') : claimReasonLabel(c.reason);
+			const d = ticket ? null : latestDispute(r);
+			const vel = d ? ` · Velocity: ${disputeStatus(d.status).label}` : '';
 			raised.push({
 				key: `c-${c.id}`, kind: 'raised', rtoId: r.id, claimId: c.id, label: orderLabel(r), amount, deadline, raisedAt: ms(c.raised_at),
-				sub: `${why} · ${c.raised_at ? `raised ${dateShort(c.raised_at)}` : 'raised'}${c.ticket_ref ? ` · ${c.ticket_ref}` : ''}`,
-				pill: { label: st.label, tone: st.tone as Tone }
+				sub: `${why} · ${c.raised_at ? `raised ${dateShort(c.raised_at)}` : 'raised'}${c.ticket_ref ? ` · ${c.ticket_ref}` : ''}${vel}`,
+				pill: { label: st.label, tone: st.tone as Tone },
+				follow: st.kind
 			});
 		}
 	}
@@ -96,7 +103,7 @@ export function buildQueue(
 		if (r.stage !== 'awaiting_receipt' || r.scanned_at || openClaimRto.has(r.id) || r.reship_state === 'pending') continue;
 		const t = ms(r.rto_delivered_at);
 		const deadline = t === null ? null : t + rules.windowDays * DAY;
-		if (t !== null && now - t < rules.mdndHours * 3_600_000) continue; // not 48 h yet
+		if (t !== null && now - t < mdndWaitHours(r, rules) * 3_600_000) continue; // not 48 h yet (72 h DTDC)
 		if (deadline === null || deadline < now) {
 			older++;
 			continue;
@@ -109,6 +116,7 @@ export function buildQueue(
 	}
 
 	toRaise.sort((a, b) => (a.deadline ?? Infinity) - (b.deadline ?? Infinity) || b.amount - a.amount);
-	raised.sort((a, b) => (b.raisedAt ?? 0) - (a.raisedAt ?? 0));
-	return { toRaise, raised, olderNotReceived: older, totals: { n: toRaise.length, value: toRaise.reduce((s, x) => s + x.amount, 0) } };
+	raised.sort((a, b) => FOLLOW_ORDER[a.follow!] - FOLLOW_ORDER[b.follow!] || (b.raisedAt ?? 0) - (a.raisedAt ?? 0));
+	const toFollow = raised.filter((r) => r.follow === 'rejected' || r.follow === 'due' || r.follow === 'courier_approved').length;
+	return { toRaise, raised, olderNotReceived: older, totals: { n: toRaise.length, value: toRaise.reduce((s, x) => s + x.amount, 0) }, toFollow };
 }

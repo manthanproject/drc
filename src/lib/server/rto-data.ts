@@ -21,7 +21,7 @@ export async function allRtos(): Promise<Rto[]> {
 
 async function allClaims(): Promise<Claim[]> {
 	const [c, m] = await Promise.all([
-		db().from('claims').select('id, rto_id, reason, status, deadline_at, approved_at, raised_at'),
+		db().from('claims').select('id, rto_id, reason, status, deadline_at, approved_at, raised_at, channel, ticket_ref, next_follow_up_at, follow_ups'),
 		db().from('claim_money').select('claim_id, outstanding')
 	]);
 	if (c.error) throw new Error(`claims: ${c.error.message}`);
@@ -36,7 +36,7 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync }> 
 	const { data, error } = await db()
 		.from('settings')
 		.select('key, value')
-		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'stuck_days', 'velocity_last_sync']);
+		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'stuck_days', 'follow_up_hours', 'mdnd_hours_dtdc', 'velocity_last_sync']);
 	if (error) throw new Error(`settings: ${error.message}`);
 	const get = (k: string) => data?.find((s) => s.key === k)?.value;
 	const pos = (v: unknown, d: number) => (num(v) > 0 ? num(v) : d);
@@ -45,7 +45,9 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync }> 
 			mdndHours: pos(get('mdnd_hours'), DEFAULT_RULES.mdndHours),
 			delayedDays: pos(get('delayed_days'), DEFAULT_RULES.delayedDays),
 			windowDays: pos(get('dispute_window_days'), DEFAULT_RULES.windowDays),
-			stuckDays: pos(get('stuck_days'), DEFAULT_RULES.stuckDays)
+			stuckDays: pos(get('stuck_days'), DEFAULT_RULES.stuckDays),
+			followHours: pos(get('follow_up_hours'), DEFAULT_RULES.followHours),
+			mdndHoursDtdc: pos(get('mdnd_hours_dtdc'), DEFAULT_RULES.mdndHoursDtdc)
 		},
 		lastSync: (get('velocity_last_sync') as LastSync) ?? null
 	};

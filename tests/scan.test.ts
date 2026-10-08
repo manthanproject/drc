@@ -45,11 +45,13 @@ test('IST day start and tomorrow', () => {
 	assert.equal(istTomorrow(now), '2026-10-07');
 });
 
-test('claim window shows "Raised 4 Oct", not "no tracking date"', () => {
+test('raised claim: follow-up shows "Raised 4 Oct", not "no tracking date"; nothing before 48 h', () => {
 	const r = rto({ stage: 'claim' });
-	const a = needsAction([r], [{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: '2026-10-04T14:24:00Z', outstanding: 100 }], DEFAULT_RULES, Date.parse('2026-10-05T10:00:00Z'));
+	const c = [{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: '2026-10-04T14:24:00Z', outstanding: 100 }];
+	assert.equal(needsAction([r], c, DEFAULT_RULES, Date.parse('2026-10-05T10:00:00Z')).length, 0);
+	const a = needsAction([r], c, DEFAULT_RULES, Date.parse('2026-10-07T10:00:00Z'));
 	assert.equal(ageText(a[0]), 'Raised 4 Oct');
-	assert.equal(a[0].detail, 'Follow up by 6 Oct');
+	assert.equal(a[0].detail, 'Raised 4 Oct, no update yet');
 });
 
 test('history wording', () => {

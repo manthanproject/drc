@@ -3,8 +3,11 @@ import { allRtos, settings } from './rto-data.ts';
 import { buildQueue, type QueueClaim } from '#lib/queue.ts';
 import { EVIDENCE } from '#lib/claims.ts';
 import { buildTickets } from '#lib/tickets.ts';
+import type { Rto } from '#lib/dashboard.ts';
 
-const CLAIM_COLS = 'id, rto_id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, deadline_at, raised_at, description, created_at';
+const CLAIM_COLS =
+	'id, rto_id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, expected_amount, approved_amount, deadline_at, raised_at, approved_at, ' +
+	'description, created_at, next_follow_up_at, follow_ups, last_follow_up_at, escalated_at';
 
 export interface PaneRto {
 	id: string;
@@ -16,6 +19,7 @@ export interface PaneRto {
 	rto_delivered_at: string | null;
 	media_folder_id: string | null;
 	customer_name: string | null;
+	disputes?: Rto['disputes'];
 }
 
 /** Disputes queue: open claims + MDND candidates, with what the right-hand pane needs. Read only. */
@@ -26,7 +30,7 @@ export async function loadQueue() {
 		settings()
 	]);
 	if (c.error) throw new Error(`claims: ${c.error.message}`);
-	const claims = (c.data ?? []) as QueueClaim[];
+	const claims = (c.data ?? []) as unknown as QueueClaim[];
 	const ids = [...new Set(claims.map((x) => x.rto_id))];
 	let media: { id: string; rto_id: string; kind: string; drive_file_id: string }[] = [];
 	if (ids.length) {
@@ -46,7 +50,8 @@ export async function loadQueue() {
 		if (want.has(r.id))
 			pane[r.id] = {
 				id: r.id, order_no: r.order_no, forward_awb: r.forward_awb, carrier_name: r.carrier_name, order_value: r.order_value,
-				payment_mode: r.payment_mode, rto_delivered_at: r.rto_delivered_at, media_folder_id: r.media_folder_id ?? null, customer_name: r.customer_name
+				payment_mode: r.payment_mode, rto_delivered_at: r.rto_delivered_at, media_folder_id: r.media_folder_id ?? null, customer_name: r.customer_name,
+					disputes: r.disputes ?? null
 			};
-	return { queue, tickets, stuckDays: s.rules.stuckDays, claims, media, pane, now };
+	return { queue, tickets, stuckDays: s.rules.stuckDays, rules: s.rules, claims, media, pane, now };
 }

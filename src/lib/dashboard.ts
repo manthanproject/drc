@@ -1,5 +1,6 @@
 // DRC Phase 2: everything the Dashboard and All RTOs list compute, as pure functions.
 // No SvelteKit / Supabase imports here, so `npm test` can run it directly.
+import { followState } from './followups.ts';
 
 export const DAY = 86_400_000;
 
@@ -95,6 +96,10 @@ export interface Claim {
 	approved_at: string | null;
 	raised_at?: string | null;
 	outstanding: number | string | null; // from view claim_money
+	channel?: string | null;
+	ticket_ref?: string | null;
+	next_follow_up_at?: string | null;
+	follow_ups?: number | null;
 }
 
 export interface Rules {
@@ -103,9 +108,18 @@ export interface Rules {
 	windowDays: number;
 	/** Coming back with no movement this long = "Likely lost" → courier ticket (Phase 4). */
 	stuckDays: number;
+	/** Follow up a raised claim / ticket after this long without news (Phase 5). */
+	followHours: number;
+	/** DTDC marks RTOs "delivered" at night and the parcel often arrives a day or two later: wait longer. */
+	mdndHoursDtdc: number;
 }
 
-export const DEFAULT_RULES: Rules = { mdndHours: 48, delayedDays: 3, windowDays: 7, stuckDays: 7 };
+export const DEFAULT_RULES: Rules = { mdndHours: 48, delayedDays: 3, windowDays: 7, stuckDays: 7, followHours: 48, mdndHoursDtdc: 72 };
+
+/** Hours after "RTO delivered" before a missing parcel is flagged MDND (DTDC waits longer). */
+export function mdndWaitHours(r: Pick<Rto, 'carrier_name'>, rules: Rules): number {
+	return String(r.carrier_name ?? '').trim().split(/\s+/)[0].toUpperCase() === 'DTDC' ? rules.mdndHoursDtdc : rules.mdndHours;
+}
 
 export const num = (v: unknown): number => {
 	const n = typeof v === 'number' ? v : Number(v ?? 0);
@@ -225,7 +239,7 @@ const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated
 
 // ---------- needs action ----------
 
-export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found';
+export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found' | 'follow_up' | 'rejected' | 'courier_approved';
 
 export interface ActionItem {
 	key: string;
@@ -255,7 +269,9 @@ function windowFields(deadline: number | null, now: number) {
 }
 
 const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Tone => {
-	if (i.kind === 'reship_found') return 'ok';
+	if (i.kind === 'reship_found' || i.kind === 'courier_approved') return 'ok';
+	if (i.kind === 'rejected') return 'bad';
+	if (i.kind === 'follow_up') return 'warn';
 	if (i.daysLeft !== null) return i.daysLeft <= 2 ? 'bad' : 'warn';
 	if (i.kind === 'lost' || i.kind === 'stuck' || i.kind === 'unknown') return 'bad';
 	if (i.windowClosed || i.kind === 'no_date') return 'mute';
@@ -289,7 +305,7 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 				push({ key: `nd-${r.id}`, kind: 'no_date', rto: r, title: `${orderLabel(r)} not received`,
 					detail: `${carrierOf(r)} says RTO delivered, never scanned in`, amount: num(r.order_value),
 					ageDays: null, ...windowFields(null, now) });
-			} else if (now - t >= rules.mdndHours * 3_600_000) {
+			} else if (now - t >= mdndWaitHours(r, rules) * 3_600_000) {
 				push({ key: `mdnd-${r.id}`, kind: 'mdnd', rto: r, title: `${orderLabel(r)} not received`,
 					detail: `${carrierOf(r)} says delivered ${dateShort(r.rto_delivered_at)}, never scanned in`,
 					amount: num(r.order_value), ageDays: daysSince(t, now), ...windowFields(t + rules.windowDays * DAY, now) });
@@ -315,7 +331,29 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 			push({ key: `cn-${c.id}`, kind: 'credit_due', rto: r, title: `${label} credit note`,
 				detail: 'Approved, money not received', amount: owed, ageNote: t === null ? undefined : `Approved ${dateShort(c.approved_at)}`,
 				ageDays: t === null ? null : daysSince(t, now), ...windowFields(null, now) });
-		} else if (['draft', 'raised', 'waiting', 'escalated'].includes(c.status) && c.deadline_at) {
+		} else if (['raised', 'waiting', 'escalated'].includes(c.status)) {
+			// Phase 5: raised claims are chased by follow-up date, not by the dispute window
+			const st = followState(c, r, rules, now);
+			if (!st || st.kind === 'waiting' || st.kind === 'credit_due') continue;
+			const ticket = c.channel === 'support_ticket' && c.ticket_ref ? c.ticket_ref : null;
+			if (ticket && st.kind === 'due') {
+				// one item per courier ticket, not per parcel
+				const key = `fu-t-${ticket}`;
+				const have = out.find((i) => i.key === key);
+				if (have) {
+					have.amount += owed;
+					have.detail = have.detail.replace(/^\d+ parcels?/, (m) => `${parseInt(m) + 1} parcels`);
+					continue;
+				}
+				push({ key, kind: 'follow_up', rto: r, title: `Ticket ${ticket} follow up`, detail: `1 parcel · no update since ${dateShort(c.raised_at)}`,
+					amount: owed, ageDays: null, ageNote: c.raised_at ? `Raised ${dateShort(c.raised_at)}` : undefined, ...windowFields(null, now) });
+				continue;
+			}
+			push({ key: `fu-${c.id}`, kind: st.kind === 'rejected' ? 'rejected' : st.kind === 'courier_approved' ? 'courier_approved' : 'follow_up', rto: r,
+				title: `${label} ${st.kind === 'rejected' ? 'dispute rejected' : st.kind === 'courier_approved' ? 'approved by courier' : 'follow up'}`,
+				detail: st.kind === 'rejected' ? 'Velocity rejected it: escalate with a ticket' : st.kind === 'courier_approved' ? 'Mark it approved, then chase the credit note' : `Raised ${dateShort(c.raised_at)}, no update yet`,
+				amount: owed, ageDays: null, ageNote: c.raised_at ? `Raised ${dateShort(c.raised_at)}` : undefined, ...windowFields(null, now) });
+		} else if (c.status === 'draft' && c.deadline_at) {
 			push({ key: `cw-${c.id}`, kind: 'claim_window', rto: r, title: `${label} claim window`,
 				detail: `${(() => { const d = latestDispute(r); return d ? `Velocity: ${disputeStatus(d.status).label} · ` : ''; })()}Follow up by ${dateShort(c.deadline_at)}`, amount: owed, ageDays: null,
 				ageNote: c.raised_at ? `Raised ${dateShort(c.raised_at)}` : 'Not raised yet',
@@ -545,6 +583,9 @@ export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
 	switch (i.kind) {
 		case 'claim_window':
 		case 'credit_due':
+		case 'follow_up':
+		case 'rejected':
+		case 'courier_approved':
 			return 'followup';
 		case 'reship_found':
 			return 'reship';
@@ -561,6 +602,9 @@ export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
 export function actionWhat(i: ActionItem): string {
 	switch (i.kind) {
 		case 'claim_window': return 'Claim follow-up';
+		case 'follow_up': return 'Follow up';
+		case 'rejected': return 'Rejected, escalate';
+		case 'courier_approved': return 'Approved, mark it';
 		case 'credit_due': return 'Credit note due';
 		case 'reship_found': return `Re-shipped as #${i.rto?.reship_order_no ?? ''}?`;
 		case 'lost': return 'Marked lost';
