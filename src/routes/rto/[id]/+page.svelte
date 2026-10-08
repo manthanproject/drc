@@ -4,7 +4,6 @@
 	import { rtoReturnedDraft } from '#lib/messages.ts';
 	import { safePath, claimHref, undoFromUrl } from '#lib/scan.ts';
 	import ClaimCard from '#lib/components/ClaimCard.svelte';
-	import { mdndWaitHours } from '#lib/dashboard.ts';
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
@@ -164,10 +163,10 @@
 
 		<div class="right">
 		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
-		{#if r.stage === 'awaiting_receipt' && !openClaim && r.courier && r.rto_delivered_at && Date.now() - Date.parse(r.rto_delivered_at) > mdndWaitHours(r, DEFAULT_RULES) * 3_600_000}
+		{#if r.stage === 'awaiting_receipt' && !r.scanned_at && !openClaim && r.courier && r.rto_delivered_at}
 			<div class="card o-claim mdndhint">
 				<b>Not received?</b>
-				<p class="small muted">The courier marked it delivered back on {dateShort(r.rto_delivered_at)}. If it is not in the warehouse, draft an MDND dispute.</p>
+				<p class="small muted">The courier marked it delivered back on {dateShort(r.rto_delivered_at)}. If it is not in the warehouse, draft an MDND dispute today: Velocity only accepts it within 48 hours of that time.</p>
 				<a class="go" href="/claims?sel={r.id}">Draft MDND in Disputes →</a>
 			</div>
 		{/if}
