@@ -27,7 +27,7 @@
 	let undo = $state<{ text: string; logId: number } | null>(null);
 	let busy = $state(false);
 	let err = $state('');
-	let imp = $state<null | { new: number; already: number; by_status: Record<string, number>; rows: number; skipped: number[]; dry_run?: boolean }>(null);
+	let imp = $state<null | { new: number; already: number; already_orders?: string[]; twice?: string[]; by_status: Record<string, number>; rows: number; skipped: number[]; dry_run?: boolean }>(null);
 	let impMsg = $state('');
 
 	const n = $derived(counts(data.refunds));
@@ -137,7 +137,8 @@
 				<b>Bring in your "Dropy Refund" sheet (one time)</b>
 				<span class="small muted">DRC reads the tab once (it never edits it). Row colours become statuses: green Done · cyan Waiting · yellow On hold · red Needs check · grey No refund.</span>
 				{#if imp?.dry_run}
-					<p class="small">Found <b>{imp.rows}</b> orders: <b>{imp.new}</b> to add{imp.already ? `, ${imp.already} already in DRC (skipped)` : ''}.
+					<p class="small">Found <b>{imp.rows}</b> rows: <b>{imp.new}</b> to add{imp.already ? `, ${imp.already} skipped (already in DRC: ${(imp.already_orders ?? []).map((o) => `#${o}`).join(', ')})` : ''}.
+						{#if imp.twice?.length}<br />Listed more than once in the sheet, every row kept: {imp.twice.map((o) => `#${o}`).join(', ')}.{/if}<br />
 						{Object.entries(imp.by_status).map(([k, v]) => `${v} ${STATUS[k as RefundStatus]?.label ?? k}`).join(' · ')}{imp.skipped.length ? ` · ${imp.skipped.length} lines without an order skipped` : ''}</p>
 					<div class="row"><button class="tool accb" disabled={busy} onclick={() => importSheet(false)}>Import {imp.new} refunds</button><button class="tool" disabled={busy} onclick={() => (imp = null)}>Cancel</button></div>
 				{:else}

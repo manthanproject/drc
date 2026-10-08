@@ -396,13 +396,13 @@ function mockRefund({ p_action, p_args: a }) {
 }
 function mockImportRefunds({ p_rows, p_dry_run }) {
 	if (!p_dry_run && settings.some((x) => x.key === 'refund_sheet_import')) return [400, { message: 'DRC_ALREADY_IMPORTED' }];
-	let n = 0, have = 0; const by = {};
+	let n = 0, have = 0; const by = {}; const skip = [];
 	for (const x of p_rows) {
-		if (refunds.some((f) => f.order_no === x.order_no && !f.deleted_at) || (p_dry_run && false)) { have++; continue; }
+		if (refunds.some((f) => f.order_no === x.order_no && !f.deleted_at && f.source !== 'sheet')) { have++; skip.push(x.order_no); continue; }
 		n++; by[x.status] = (by[x.status] ?? 0) + 1;
 		if (!p_dry_run) refunds.push({ id: `00000000-0000-0000-0000-d${String(++eventId).padStart(11, '0')}`, order_no: x.order_no, rto_id: rows.find((r) => r.order_no === x.order_no)?.id ?? null, reason: x.reason || null, via: x.via, refund_to: x.refund_to, amount: null, status: x.status, done_at: x.status === 'done' ? new Date().toISOString() : null, done_ref: null, extra: {}, source: 'sheet', sheet_row: x.sheet_row, created_at: new Date(Date.now() - 20 * 86400000).toISOString(), updated_at: new Date().toISOString(), deleted_at: null });
 	}
-	const res = { new: n, already: have, by_status: by, dry_run: p_dry_run };
+	const res = { new: n, already: have, already_orders: skip, by_status: by, dry_run: p_dry_run };
 	if (p_dry_run) return [400, { message: `DRC_DRY_RUN ${JSON.stringify(res)}` }];
 	settings.push({ key: 'refund_sheet_import', value: { ...res, at: new Date().toISOString() } });
 	return [200, res];

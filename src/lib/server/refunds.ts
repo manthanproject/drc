@@ -157,13 +157,16 @@ export async function importSheet(dry: boolean) {
 		error(502, `Could not read the "${SHEET_TAB}" tab. Nothing imported`);
 	}
 	const parsed = parseRefundSheet(cells);
+	const seen = new Map<string, number>();
+	for (const r of parsed.rows) seen.set(r.order_no, (seen.get(r.order_no) ?? 0) + 1);
+	const twice = [...seen].filter(([, n]) => n > 1).map(([o]) => o);
 	if (!parsed.rows.length) error(400, `No orders found in the "${SHEET_TAB}" tab`);
 	const { data, error: e } = await db().rpc('import_refunds', { p_rows: parsed.rows, p_dry_run: dry });
 	if (e) {
 		const m = e.message.match(/DRC_DRY_RUN (\{.*\})/);
-		if (m) return { ...JSON.parse(m[1]), rows: parsed.rows.length, skipped: parsed.skipped };
+		if (m) return { ...JSON.parse(m[1]), rows: parsed.rows.length, skipped: parsed.skipped, twice };
 		if (e.message.includes('DRC_ALREADY_IMPORTED')) error(409, 'The sheet was already imported');
 		fail(e.message);
 	}
-	return { ...(data as object), rows: parsed.rows.length, skipped: parsed.skipped };
+	return { ...(data as object), rows: parsed.rows.length, skipped: parsed.skipped, twice };
 }
