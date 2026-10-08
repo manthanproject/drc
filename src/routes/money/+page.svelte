@@ -5,7 +5,7 @@
 	import { inr, dateShort, agoText } from '#lib/dashboard.ts';
 	import { claimReasonLabel } from '#lib/claims.ts';
 	import { rtoHref } from '#lib/scan.ts';
-	import { parsePassbook, suggestFor, monthLabel, rupees } from '#lib/money.ts';
+	import { parsePassbook, parseCnDetails, suggestFor, monthLabel, rupees } from '#lib/money.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -19,6 +19,10 @@
 	let pick = $state<Record<string, string>>({});
 	let cn = $state<Record<string, string>>({});
 	let note = $state<Record<string, string>>({});
+	type CnLine = { cn: string; ok: boolean; text: string; orders?: { order: string; amount: number; created: boolean; result: string }[] };
+	let cnBusy = $state(false);
+	let cnMsg = $state('');
+	let cnLines = $state<CnLine[]>([]);
 
 	const rtoById = $derived(new Map(data.rtos.map((r) => [r.id, r])));
 	const claimById = $derived(new Map(data.claims.map((c) => [c.id, c])));
@@ -77,6 +81,54 @@
 			upMsg = 'No connection. Upload the same file again; nothing is counted twice.';
 		} finally {
 			busy = false;
+		}
+	}
+
+	const orderLabel = (o: string | null) => (/^\d+(-\d+)*$/.test(String(o ?? '')) ? `#${o}` : String(o ?? '?'));
+
+	/** Velocity → Credit Note → second icon: one file per note; several files at once is fine. */
+	async function uploadCn(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const files = [...(input.files ?? [])];
+		input.value = '';
+		if (!files.length || busy || cnBusy) return;
+		cnBusy = true;
+		cnMsg = '';
+		cnLines = [];
+		err = '';
+		const out: CnLine[] = [];
+		let lastEvent: { text: string; eventId: number } | null = null;
+		let applied = 0;
+		try {
+			const texts = await Promise.all(files.map((f) => f.text()));
+			const p = parseCnDetails(texts.join('\n'));
+			if (!p.notes.length) {
+				cnMsg = p.skipped[0]?.why ? `Not read: ${p.skipped[0].why}` : 'No credit note lines in this file';
+				return;
+			}
+			for (const n of p.notes) {
+				cnMsg = `Applying ${n.cn}…`;
+				const r = await fetch('/api/money/cn', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cn: n.cn, rows: n.rows }) });
+				const b = await r.json().catch(() => ({}));
+				if (!r.ok) {
+					out.push({ cn: n.cn, ok: false, text: b?.message ?? `Could not apply (${r.status})` });
+					continue;
+				}
+				applied++;
+				const orders = (b.orders ?? []).map((o: { order_no: string | null; amount: number; created: boolean; result: string }) =>
+					({ order: orderLabel(o.order_no), amount: Number(o.amount), created: o.created, result: o.result }));
+				out.push({ cn: n.cn, ok: true, text: `${rupees(Number(b.amount))} · ${dateShort(b.credit_date + 'T12:00:00+05:30')}`, orders });
+				lastEvent = { text: `${n.cn} applied: ${orders.map((o: { order: string }) => o.order).join(', ')} closed`, eventId: b.event_id };
+			}
+			cnMsg = `${applied} of ${p.notes.length} credit note${p.notes.length > 1 ? 's' : ''} applied` +
+				(p.skipped.length ? ` · ${p.skipped.length} line${p.skipped.length > 1 ? 's' : ''} skipped (line ${p.skipped[0].line}: ${p.skipped[0].why})` : '');
+			if (applied === 1 && lastEvent) undo = lastEvent;
+			if (applied) await invalidateAll();
+		} catch {
+			cnMsg = 'No connection. Upload the same file(s) again; notes already applied are skipped.';
+		} finally {
+			cnLines = out;
+			cnBusy = false;
 		}
 	}
 
@@ -162,6 +214,35 @@
 			{#if upMsg}<p class="small msg" class:bad={!upOk} role="status">{upMsg}</p>{/if}
 		</section>
 
+		<section class="card up">
+			<div class="uh">
+				<b>Upload credit-note details</b>
+				<span class="small muted">Tells DRC which orders each credit note pays</span>
+			</div>
+			<ol class="small steps">
+				<li>Upload the passbook first (the note's money must be in DRC)</li>
+				<li>Velocity → Payments → <b>Credit Note</b> → tap the <b>second icon</b> on a note to download its details</li>
+				<li>Choose the file(s) here; several at once is fine</li>
+			</ol>
+			<label class="file" class:busy={cnBusy}>
+				<input type="file" accept=".csv,text/csv" multiple onchange={uploadCn} disabled={busy || cnBusy} />
+				<span>{cnBusy ? 'Working…' : 'Choose credit-note detail file(s) (.csv)'}</span>
+			</label>
+			{#if cnMsg}<p class="small msg" class:bad={cnLines.some((l) => !l.ok) || !cnLines.length} role="status">{cnMsg}</p>{/if}
+			{#if cnLines.length}
+				<ul class="cnl">
+					{#each cnLines as l (l.cn)}
+						<li class:bad={!l.ok}>
+							<b>{l.cn}</b> <span class="small">{l.text}</span>
+							{#if l.orders}
+								<span class="small muted">→ {#each l.orders as o, i (o.order)}{i ? ', ' : ''}{o.order} {rupees(o.amount)}{o.created ? ' (claim created)' : ''}{o.result === 'short_paid_accepted' ? ' short-paid' : ''}{/each}</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+
 		<div class="sec">CLAIM MONEY TO MATCH</div>
 		{#each toMatch as l (l.id)}
 			{@const sug = suggestFor(Number(l.amount), data.claims, data.rtos)}
@@ -181,7 +262,7 @@
 						<p class="small hint">Same amount as an order with no open claim: often money for a parcel marked lost that came back. Velocity may take it back.</p>
 					{/if}
 				{:else}
-					<p class="small muted hint">No claim has this amount. Ask Velocity which AWB this credit note covers, or pick the claim below.</p>
+					<p class="small muted hint">No claim has this amount. Download this note's details (Credit Note → second icon) and upload it above; DRC then splits it across its orders.</p>
 				{/if}
 				<div class="row">
 					<label class="sr" for="cl-{l.id}">Claim</label>
@@ -233,11 +314,15 @@
 			<div class="sec">MATCHED</div>
 			<div class="card list">
 				{#each matched as l (l.id)}
-					{@const a = l.credit?.allocs?.[0]}
-					{@const c = a ? claimById.get(a.claim_id) : undefined}
+					{@const allocs = l.credit?.allocs ?? []}
 					<div class="lrow">
 						<span><b class="money">{rupees(Number(l.amount))}</b> <span class="muted small">{dayIst(l.at)}{l.credit?.external_ref ? ` · ${l.credit.external_ref}` : ''}</span></span>
-						{#if c}<a class="small to" href={rtoHref(c.rto_id, '/money')}>→ {orderOf(c.rto_id)} {claimReasonLabel(c.reason)}</a>{:else}<span class="small muted">linked</span>{/if}
+						<span class="tos">
+							{#each allocs as a (a.claim_id)}
+								{@const c = claimById.get(a.claim_id)}
+								{#if c}<a class="small to" href={rtoHref(c.rto_id, '/money')}>→ {orderOf(c.rto_id)} {claimReasonLabel(c.reason)}{allocs.length > 1 ? ` ${rupees(Number(a.amount))}` : ''}</a>{/if}
+							{:else}<span class="small muted">linked</span>{/each}
+						</span>
 					</div>
 				{/each}
 			</div>
@@ -308,6 +393,9 @@
 	.lrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
 	.lrow:first-child { border-top: 0; }
 	.to { color: var(--acc); font-weight: 600; }
+	.tos { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+	.cnl { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+	.cnl li.bad { color: var(--bad); }
 	.lnk { border: 0; background: none; color: var(--acc); font-weight: 700; cursor: pointer; }
 	.tbl { overflow-x: auto; }
 	table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 640px; }

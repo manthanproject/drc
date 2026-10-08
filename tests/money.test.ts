@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCsv, parsePassbook, categoryOf, istIso, suggestFor, monthly, monthLabel, rupees } from '../src/lib/money.ts';
+import { parseCsv, parsePassbook, categoryOf, istIso, suggestFor, monthly, monthLabel, rupees, parseCnDetails, orderNoOf } from '../src/lib/money.ts';
 
 // Lines copied from the real Velocity passbook download (Dropy-Ledger_Report-20261008_161139.csv), same header and format
 const REAL = [
@@ -95,4 +95,38 @@ test('monthly summary: charges, counts, reversals, claim money, net', () => {
 	assert.equal(monthLabel('2026-10'), 'Oct 2026');
 	assert.equal(rupees(4999.99), '₹4,999.99');
 	assert.equal(rupees(1728), '₹1,728');
+});
+
+// The three real credit-note detail files (Velocity → Payments → Credit Note → second icon), byte for byte
+const H = 'Credit Note Id,Order Id,Order Value,Shipment Type(FWD/REV),AWB Number,Shipment Status,Claim Amount';
+const CN246 = [H, 'VSF/FN/1026/246,#Dropy-3082,3977.0,FWD,38539512054802,lost,2499.9952', 'VSF/FN/1026/246,#Dropy-1708,3847.0,FWD,7D130953961,rto_delivered,2499.9952', ''].join('\n');
+const CN096 = [H, 'VSF/FN/1026/096,#Dropy-1419,1728.0,FWD,7D130942098,lost,1728.0038', ''].join('\n');
+const CN393 = [H, 'VSF/FN/0926/393,#Dropy-2354,2179.0,FWD,38539512014305,rto_delivered,2178.9998', ''].join('\n');
+
+test('credit-note details: real file with two orders', () => {
+	const p = parseCnDetails(CN246);
+	assert.equal(p.skipped.length, 0);
+	assert.equal(p.notes.length, 1);
+	assert.equal(p.notes[0].cn, 'VSF/FN/1026/246');
+	assert.equal(p.notes[0].total, 4999.99); // the passbook line
+	assert.deepEqual(p.notes[0].rows[0], { awb: '38539512054802', order_no: '3082', order_value: 3977, status: 'lost', amount: 2499.9952 });
+	assert.deepEqual(p.notes[0].rows.map((r) => [r.order_no, r.status]), [['3082', 'lost'], ['1708', 'rto_delivered']]);
+});
+
+test('credit-note details: files joined, one total per note, duplicates once', () => {
+	const p = parseCnDetails(CN246 + CN096 + CN393 + CN096);
+	assert.deepEqual(p.notes.map((n) => [n.cn, n.rows.length, n.total]), [['VSF/FN/1026/246', 2, 4999.99], ['VSF/FN/1026/096', 1, 1728], ['VSF/FN/0926/393', 1, 2179]]);
+	assert.equal(p.skipped.length, 0);
+});
+
+test('credit-note details: wrong file and bad lines', () => {
+	assert.match(parseCnDetails(REAL).skipped[0].why, /not a credit-note details file/);
+	assert.equal(parseCnDetails(REAL).notes.length, 0);
+	assert.equal(parseCnDetails('').skipped[0].why, 'empty file');
+	const p = parseCnDetails([H, 'VSF/X,#Dropy-1,10,FWD,,lost,5', 'VSF/X,#Dropy-2,10,FWD,AWB2,lost,abc', 'VSF/X,#Dropy-3,10,FWD,AWB3,lost,5'].join('\n'));
+	assert.deepEqual(p.skipped, [{ line: 2, why: 'no AWB' }, { line: 3, why: 'amount "abc"' }]);
+	assert.equal(p.notes[0].rows.length, 1);
+	assert.equal(orderNoOf('#Dropy-3082'), '3082');
+	assert.equal(orderNoOf('Dropy 4101-1'), '4101-1');
+	assert.equal(orderNoOf('SHOP-77'), 'SHOP-77');
 });

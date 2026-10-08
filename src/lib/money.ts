@@ -243,3 +243,77 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 export const rupees = (n: number) => inr(Math.round(n * 100) / 100);
 
 export const monthLabel = (ym: string) => `${MONTH_NAMES.at(Number(ym.slice(5, 7)) - 1) ?? ym} ${ym.slice(0, 4)}`;
+
+// ---------- credit-note details (Velocity → Credit Note → second icon) ----------
+
+export interface CnRow {
+	awb: string;
+	order_no: string; // '#Dropy-3082' → '3082'
+	order_value: number | null;
+	status: string; // Velocity's: lost | rto_delivered | …
+	amount: number; // as Velocity sends it (2499.9952); DRC rounds and splits to the passbook line
+}
+export interface CnNote {
+	cn: string;
+	rows: CnRow[];
+	total: number; // two decimals
+}
+export interface CnParsed {
+	notes: CnNote[];
+	skipped: { line: number; why: string }[];
+}
+
+const CN_HEADERS = {
+	cn: /^credit ?note( ?(id|no\.?|number))?$/i,
+	order: /^order ?(id|no\.?|number)?$/i,
+	value: /^order ?value$/i,
+	awb: /^(awb( ?(number|no\.?|code))?|tracking number)$/i,
+	status: /^shipment ?status$/i,
+	amount: /^(claim ?amount|amount)$/i
+};
+
+/** '#Dropy-3082' | 'Dropy-3082' | '3082' → '3082'. Other ids kept as they are. */
+export function orderNoOf(v: string): string {
+	const s = v.trim().replace(/^#/, '');
+	const m = s.match(/^dropy[-\s]?(\d+(?:-\d+)*)$/i);
+	return m ? m[1] : s;
+}
+
+/** One or more credit-note detail files (several can be joined). Rows grouped by credit note id. */
+export function parseCnDetails(text: string): CnParsed {
+	const table = parseCsv(text);
+	const skipped: CnParsed['skipped'] = [];
+	const by = new Map<string, CnRow[]>();
+	let col: Record<keyof typeof CN_HEADERS, number> | null = null;
+	table.forEach((r, i) => {
+		const cells = r.map((c) => c.trim());
+		// a header line (also when files were joined one after another)
+		if (cells.some((c) => CN_HEADERS.cn.test(c)) && cells.some((c) => CN_HEADERS.awb.test(c))) {
+			col = {} as Record<keyof typeof CN_HEADERS, number>;
+			for (const k of Object.keys(CN_HEADERS) as (keyof typeof CN_HEADERS)[]) col[k] = cells.findIndex((h) => CN_HEADERS[k].test(h));
+			return;
+		}
+		if (!col) {
+			if (i === 0) skipped.push({ line: 1, why: 'not a credit-note details file: no Credit Note Id / AWB Number columns' });
+			return;
+		}
+		const c = col as Record<keyof typeof CN_HEADERS, number>;
+		const get = (k: keyof typeof CN_HEADERS) => (c[k] >= 0 ? String(cells[c[k]] ?? '').trim() : '');
+		const cn = get('cn');
+		const awb = get('awb');
+		const amount = Number(get('amount').replace(/[₹,\s]/g, ''));
+		if (!cn || !awb || !Number.isFinite(amount) || amount <= 0) {
+			skipped.push({ line: i + 1, why: !cn ? 'no credit note id' : !awb ? 'no AWB' : `amount "${get('amount')}"` });
+			return;
+		}
+		const value = Number(get('value').replace(/[₹,\s]/g, ''));
+		const list = by.get(cn) ?? [];
+		// the same file uploaded twice: keep one row per AWB
+		if (!list.some((x) => x.awb === awb))
+			list.push({ awb, order_no: orderNoOf(get('order')), order_value: get('value') && Number.isFinite(value) ? value : null, status: get('status').toLowerCase(), amount });
+		by.set(cn, list);
+	});
+	if (!table.length) skipped.push({ line: 1, why: 'empty file' });
+	const notes = [...by.entries()].map(([cn, rows]) => ({ cn, rows, total: Math.round(rows.reduce((t, x) => t + x.amount, 0) * 100) / 100 }));
+	return { notes, skipped };
+}

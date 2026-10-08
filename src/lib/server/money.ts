@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { db } from './supabase.ts';
 import { fail, UUID } from './actions.ts';
 import { allRtos } from './rto-data.ts';
-import { categoryOf, monthly, type LedgerRow, type MonthlyRow } from '#lib/money.ts';
+import { categoryOf, monthly, rupees, type LedgerRow, type MonthlyRow } from '#lib/money.ts';
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:30$/;
 const MAX_ROWS = 2000; // per request; the page sends a big file in parts
@@ -38,6 +38,46 @@ export async function labelLine(raw: unknown) {
 	const { data, error: e } = await db().rpc('ledger_action', { p_action: 'label', p_args: { ledger_id: b.ledger_id, label, note } });
 	if (e) fail(e.message);
 	return data;
+}
+
+export interface CnResult {
+	event_id: number;
+	cn: string;
+	amount: number;
+	credit_date: string;
+	claims_created: number;
+	orders: { order_no: string | null; awb: string | null; amount: number; created: boolean; result: string }[];
+}
+
+/** Apply one credit note's detail rows (browser parsed the file; every row re-checked here). One note per call. */
+export async function applyCreditNote(raw: unknown): Promise<CnResult> {
+	const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+	const cn = typeof b.cn === 'string' ? b.cn.trim().slice(0, 80) : '';
+	const list = Array.isArray(b.rows) ? (b.rows as Record<string, unknown>[]) : [];
+	if (!cn) error(400, 'Credit note number missing in the file');
+	if (!list.length || list.length > 50) error(400, 'A credit note has 1 to 50 orders');
+	const rows = list.map((x) => {
+		const amount = Number(x?.amount);
+		const awb = String(x?.awb ?? '').trim().slice(0, 40);
+		if (!awb || !Number.isFinite(amount) || amount <= 0 || amount > 100000) error(400, `A line is malformed. Re-download the details file`);
+		const v = Number(x?.order_value);
+		return { awb, order_no: String(x?.order_no ?? '').trim().slice(0, 40), order_value: Number.isFinite(v) && v > 0 ? v : null,
+			status: String(x?.status ?? '').trim().toLowerCase().slice(0, 40), amount };
+	});
+	const { data, error: e } = await db().rpc('apply_credit_note', { p_args: { cn, rows } });
+	if (e) {
+		const m = e.message;
+		const total = rupees(Math.round(rows.reduce((t, x) => t + x.amount, 0) * 100) / 100);
+		if (m.includes('DRC_CN_DONE')) error(409, 'Already in DRC (uploaded before)');
+		if (m.includes('DRC_NO_PASSBOOK_LINE'))
+			error(409, `No unmatched ${total} claim credit in the passbook. Upload the latest passbook first. If you linked it by hand, undo that link first`);
+		const got = m.match(/DRC_CN_RECEIVED (\S+)/);
+		if (got) error(409, `${/^\d+(-\d+)*$/.test(got[1]) ? '#' : ''}${got[1]} was scanned in (we have the parcel) and has no claim. Nothing saved for this note. Label the money "Parcel we got back" and tell Velocity`);
+		const awb = m.match(/DRC_CN_UNKNOWN_AWB (\S+)/);
+		if (awb) error(409, `AWB ${awb[1]} is not an RTO in DRC. Nothing saved for this note`);
+		fail(m);
+	}
+	return data as CnResult;
 }
 
 export interface MoneyLine {

@@ -39,7 +39,7 @@ select pg_temp.ok((select (o->>'n')::int = 3 and o->>'ticket_ref' = '#106373' an
 select pg_temp.ok((select count(*) = 3 from claims where ticket_ref = '#106373' and status = 'raised' and channel = 'support_ticket'
                    and ticket_url = 'https://shipfast.freshdesk.com/support/tickets/106373' and description = 'Ticket text'), '3 raised ticket claims with link');
 select pg_temp.ok((select reason = 'lost' and claimed_amount = 3250 and expected_amount = 2500 from claims c join rtos r on r.id = c.rto_id where r.order_no = '9001' and c.ticket_ref = '#106373'), 'stuck → lost, Velocity cap ₹2,500 expected');
-select pg_temp.ok((select reason = 'mdnd' and expected_amount is null from claims c join rtos r on r.id = c.rto_id where r.order_no = '9002' and c.ticket_ref = '#106373'), 'delivered-not-received → mdnd');
+select pg_temp.ok((select reason = 'mdnd' and expected_amount = least(claimed_amount, 2500) from claims c join rtos r on r.id = c.rto_id where r.order_no = '9002' and c.ticket_ref = '#106373'), 'delivered-not-received → mdnd (cap ₹2,500 since 0013)');
 select pg_temp.ok((select (raised_at at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date - 2 from claims c join rtos r on r.id = c.rto_id where r.order_no = '9003' and c.ticket_ref = '#106373'), 'back-dated raised day');
 select pg_temp.ok((select stage = 'in_flight' from rtos where order_no = '9001') and (select stage = 'awaiting_receipt' from rtos where order_no = '9002')
                   and (select stage = 'lost' from rtos where order_no = '9003'), 'stages unchanged (sync keeps tracking)');
