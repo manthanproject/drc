@@ -118,7 +118,9 @@
 				const orders = (b.orders ?? []).map((o: { order_no: string | null; amount: number; created: boolean; result: string }) =>
 					({ order: orderLabel(o.order_no), amount: Number(o.amount), created: o.created, result: o.result }));
 				out.push({ cn: n.cn, ok: true, text: `${rupees(Number(b.amount))} · ${dateShort(b.credit_date + 'T12:00:00+05:30')}`, orders });
-				lastEvent = { text: `${n.cn} applied: ${orders.map((o: { order: string }) => o.order).join(', ')} closed`, eventId: b.event_id };
+				const paid = orders.filter((o: { result: string }) => o.result !== 'set_aside').map((o: { order: string }) => o.order);
+				const aside = orders.filter((o: { result: string }) => o.result === 'set_aside').map((o: { order: string }) => o.order);
+				lastEvent = { text: `${n.cn} applied` + (paid.length ? `: ${paid.join(', ')} closed` : '') + (aside.length ? ` · ${aside.join(', ')} set aside` : ''), eventId: b.event_id };
 			}
 			cnMsg = `${applied} of ${p.notes.length} credit note${p.notes.length > 1 ? 's' : ''} applied` +
 				(p.skipped.length ? ` · ${p.skipped.length} line${p.skipped.length > 1 ? 's' : ''} skipped (line ${p.skipped[0].line}: ${p.skipped[0].why})` : '');
@@ -235,7 +237,7 @@
 						<li class:bad={!l.ok}>
 							<b>{l.cn}</b> <span class="small">{l.text}</span>
 							{#if l.orders}
-								<span class="small muted">→ {#each l.orders as o, i (o.order)}{i ? ', ' : ''}{o.order} {rupees(o.amount)}{o.created ? ' (claim created)' : ''}{o.result === 'short_paid_accepted' ? ' short-paid' : ''}{/each}</span>
+								<span class="small muted">→ {#each l.orders as o, i (o.order)}{i ? ', ' : ''}{o.order} {rupees(o.amount)}{o.result === 'set_aside' ? ' set aside (parcel we got back)' : o.created ? ' (claim created)' : ''}{o.result === 'short_paid_accepted' ? ' short-paid' : ''}{/each}</span>
 							{/if}
 						</li>
 					{/each}
@@ -316,12 +318,13 @@
 				{#each matched as l (l.id)}
 					{@const allocs = l.credit?.allocs ?? []}
 					<div class="lrow">
-						<span><b class="money">{rupees(Number(l.amount))}</b> <span class="muted small">{dayIst(l.at)}{l.credit?.external_ref ? ` · ${l.credit.external_ref}` : ''}</span></span>
+						<span><b class="money">{rupees(Number(l.amount))}</b> <span class="muted small">{dayIst(l.at)}{l.credit?.external_ref ? ` · ${l.credit.external_ref}` : ''}</span>
+							{#if l.label_note}<br /><span class="small aside">{l.label_note}</span>{/if}</span>
 						<span class="tos">
 							{#each allocs as a (a.claim_id)}
 								{@const c = claimById.get(a.claim_id)}
 								{#if c}<a class="small to" href={rtoHref(c.rto_id, '/money')}>→ {orderOf(c.rto_id)} {claimReasonLabel(c.reason)}{allocs.length > 1 ? ` ${rupees(Number(a.amount))}` : ''}</a>{/if}
-							{:else}<span class="small muted">linked</span>{/each}
+							{:else}<span class="small muted">{l.label ? 'no claim paid' : 'linked'}</span>{/each}
 						</span>
 					</div>
 				{/each}
@@ -393,6 +396,7 @@
 	.lrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
 	.lrow:first-child { border-top: 0; }
 	.to { color: var(--acc); font-weight: 600; }
+	.aside { color: var(--warn, #b7791f); font-weight: 600; }
 	.tos { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
 	.cnl { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 	.cnl li.bad { color: var(--bad); }

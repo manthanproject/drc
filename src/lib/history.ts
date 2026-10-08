@@ -53,6 +53,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			if (p.action === 'claim_approved') text = `Claim approved${p.args?.amount ? ` (${inr(Number(p.args.amount))})` : ''}`;
 			if (p.action === 'claim_credited')
 				text = `Credit ${p.args?.ticket_ref ?? ''} ${rupees(Number(p.args?.amount ?? 0))} received, ${p.args?.created ? 'claim created from the credit note and closed' : 'claim closed'}${p.args?.result === 'short_paid_accepted' ? ' (short-paid)' : ''}`;
+			if (p.action === 'cn_set_aside')
+				text = `Credit note ${p.args?.ticket_ref ?? ''} paid ${rupees(Number(p.args?.amount ?? 0))} for this parcel${p.args?.status === 'lost' ? ' as lost' : ''}, but we have it back: set aside, not a claim (Velocity may take it back)`;
 			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
 			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;

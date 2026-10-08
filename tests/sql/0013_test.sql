@@ -53,11 +53,7 @@ select pg_temp.ok((select credit_id is null from ledger where amount = 4999.99),
 select pg_temp.fails($q$select apply_credit_note('{"cn":"Y","rows":[{"awb":"7D130942098","amount":999}]}')$q$, 'DRC_NO_PASSBOOK_LINE');
 select pg_temp.fails($q$select apply_credit_note('{"rows":[{"awb":"7D130942098","amount":1728}]}')$q$, 'DRC_CN_REQUIRED');
 
--- a parcel we scanned in, no claim: refused, nothing saved (money for a parcel we have is not a claim)
-update rtos set scanned_at = now() where order_no = '1419';
-select pg_temp.fails($q$select apply_credit_note('{"cn":"VSF/FN/1026/096","rows":[{"awb":"7D130942098","order_no":"1419","status":"lost","amount":1728.0038}]}')$q$, 'DRC_CN_RECEIVED 1419');
-select pg_temp.ok((select count(*) = 0 from claims where rto_id = '00000000-0000-0000-0000-0000000000a3') and (select credit_id is null from ledger where amount = 1728), 'received parcel: no claim, line still free');
-update rtos set scanned_at = null where order_no = '1419';
+-- (a parcel we scanned in with no claim: see 0014_test.sql)
 
 -- #1419: lost note for a parcel with no claim (DRC creates a lost claim, full value)
 create temp table a3 as select apply_credit_note('{"cn":"VSF/FN/1026/096","rows":[{"awb":"7D130942098","order_no":"1419","order_value":1728,"status":"lost","amount":1728.0038}]}'::jsonb) as o;
