@@ -39,6 +39,11 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_HAS_CREDIT: [409, 'Money is already linked to this claim, so it cannot be withdrawn'],
 	DRC_BAD_AMOUNT: [400, 'Type a valid amount'],
 	DRC_CN_REQUIRED: [400, 'Type the credit note number'],
+	DRC_NOT_CLAIM_MONEY: [400, 'That passbook line is not claim money'],
+	DRC_LEDGER_USED: [409, 'That money is already linked to a claim. Refresh the page'],
+	DRC_BAD_LABEL: [400, 'Unknown label'],
+	DRC_BAD_SOURCE: [400, 'Unknown passbook source'],
+	DRC_NO_ROWS: [400, 'No passbook lines to import'],
 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
 };
 

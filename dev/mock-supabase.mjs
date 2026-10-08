@@ -125,8 +125,39 @@ for (const it of rtoItems) Object.assign(it, { condition: it.condition ?? 'pendi
     if (r.payment_mode !== 'cod' && k % 2 === 0) r.refund_state = k % 4 === 0 ? 'due' : 'credit_due';
     k++;
   } }
-const claimMoney = claims.map((c) => ({ claim_id: c.id, outstanding: rows.find((r) => r.id === c.rto_id).order_value }));
-const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia };
+// Phase 6: claims money can be matched to (#3082 lost ₹3,977 / cap ₹2,500; #3315 ₹12,049 ticket → ₹5,000 cap), and #1419 ₹1,728 with no claim
+{ const r3082 = rows.find((x) => x.order_no === '3082'); claims.push({ id: '00000000-0000-0000-0000-c00000003082', rto_id: r3082.id, reason: 'lost', status: 'raised', channel: 'support_ticket', ticket_ref: '#105643', claimed_amount: 3977, expected_amount: 2500, description: null, created_at: '2026-09-20T06:00:00Z', deadline_at: null, approved_at: null, raised_at: '2026-09-20T06:00:00Z' });
+  const r3315 = rows.find((x) => x.order_no === '3315'); claims.push({ id: '00000000-0000-0000-0000-c00000003315', rto_id: r3315.id, reason: 'lost', status: 'raised', channel: 'support_ticket', ticket_ref: '#106373', claimed_amount: 12049, expected_amount: 2500, description: null, created_at: '2026-10-05T06:00:00Z', deadline_at: null, approved_at: null, raised_at: '2026-10-05T06:00:00Z' });
+  const rs = rows.find((x) => x.stage === 'ready_stock' && x.forward_awb); Object.assign(rs, { order_no: '1419', order_value: 1728 }); }
+const claimMoney = claims.map((c) => ({ claim_id: c.id, received_amount: 0, outstanding: c.expected_amount ?? rows.find((r) => r.id === c.rto_id).order_value }));
+const ledger = [];
+const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia, ledger };
+Object.defineProperty(tables, 'ledger_monthly', { enumerable: true, get() {
+	const m = new Map();
+	for (const l of ledger) { const k = [l.at.slice(0, 7), l.category, l.txn_type].join('|'); const a = m.get(k) ?? { source: 'velocity_passbook', month: l.at.slice(0, 7), category: l.category, txn_type: l.txn_type, n: 0, amount: 0 }; a.n++; a.amount += Number(l.amount); m.set(k, a); }
+	return [...m.values()];
+} });
+function mockImportLedger({ p_source, p_rows }) {
+	if (!Array.isArray(p_rows) || !p_rows.length) return [400, { message: 'DRC_NO_ROWS' }];
+	let fresh = 0, claim = 0;
+	for (const r of p_rows) {
+		const hash = [p_source, r.at, r.type, r.amount, r.awb, r.balance, r.notes].join('|');
+		if (ledger.some((l) => l.row_hash === hash)) continue;
+		ledger.push({ id: `00000000-0000-0000-0000-${String(700000000000 + ledger.length)}`, row_hash: hash, at: r.at, txn_type: r.type, amount: r.amount, balance: r.balance, awb: r.awb || null, notes: r.notes, category: r.category, credit_id: null, credit: null, label: null, label_note: null });
+		fresh++; if (r.category === 'claim_credit') claim++;
+	}
+	const s = settings.find((x) => x.key === 'ledger_last_import'); const ats = p_rows.map((r) => r.at).sort();
+	const v = { at: new Date().toISOString(), read: p_rows.length, new: fresh, from: ats[0], to: ats.at(-1) };
+	if (s) s.value = v; else settings.push({ key: 'ledger_last_import', value: v });
+	return [200, { read: p_rows.length, new: fresh, already: p_rows.length - fresh, claim_money_new: claim, linked_to_typed: 0 }];
+}
+function mockLedgerAction({ p_args }) {
+	const l = ledger.find((x) => x.id === p_args.ledger_id);
+	if (!l) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (l.credit_id) return [400, { message: 'DRC_LEDGER_USED' }];
+	l.label = p_args.label ?? null; l.label_note = p_args.label ? p_args.note || null : null;
+	return [200, { ledger_id: l.id, label: l.label }];
+}
 const STAGE_OF = { received_call: 'to_call', ready_stock: 'ready_stock', reship: 'reship', hold: 'hold', close: 'closed', reship_confirm: 'closed' };
 function mockAction({ p_rto, p_action, p_args = {} }) {
 	const r = rows.find((x) => x.id === p_rto);
@@ -228,6 +259,8 @@ function mockClaimAction({ p_claim, p_action, p_args = {} }) {
 		if (p_action === 'escalate') { if (!p_args.ticket_ref) return [400, { message: 'DRC_TICKET_REF_REQUIRED' }]; const ref = String(p_args.ticket_ref).replace(/^#/, ''); Object.assign(c, { status: 'escalated', escalated_at: new Date().toISOString(), ticket_ref: /^\d+$/.test(ref) ? `#${ref}` : ref, next_follow_up_at: next, description: p_args.description ?? c.description }); }
 		if (p_action === 'withdraw') Object.assign(c, { status: 'closed', close_result: 'withdrawn', closed_at: new Date().toISOString() });
 		if (p_action === 'approved') { if (!OPEN5.slice(0, 3).includes(c.status)) return [400, { message: 'DRC_CLAIM_NOT_OPEN' }]; Object.assign(c, { status: 'approved', approved_at: new Date().toISOString(), approved_amount: Number(p_args.approved_amount ?? c.claimed_amount), next_follow_up_at: next }); }
+		if (p_action === 'credited' && p_args.ledger_id) { const l = ledger.find((x) => x.id === p_args.ledger_id); if (!l || l.category !== 'claim_credit') return [400, { message: 'DRC_NOT_CLAIM_MONEY' }]; if (l.credit_id) return [400, { message: 'DRC_LEDGER_USED' }];
+			l.credit_id = `cr-${l.id}`; l.credit = { external_ref: p_args.ticket_ref || null, allocs: [{ claim_id: c.id, amount: l.amount }] }; l.label = null; p_args.amount = l.amount; p_args.ticket_ref ||= 'passbook'; }
 		if (p_action === 'credited') { if (!p_args.ticket_ref) return [400, { message: 'DRC_CN_REQUIRED' }]; const target = Number(c.approved_amount ?? c.expected_amount ?? c.claimed_amount); Object.assign(c, { status: 'closed', close_result: Number(p_args.amount) >= target ? 'credited_full' : 'short_paid_accepted', closed_at: new Date().toISOString() }); const m = claimMoney.find((x) => x.claim_id === c.id); if (m) m.outstanding = Math.max(0, target - Number(p_args.amount)); }
 		const id = ev(c, `claim_${{ escalate: 'escalated', withdraw: 'withdrawn', approved: 'approved', credited: 'credited' }[p_action]}`);
 		return [200, { event_id: id, claim_id: c.id, status: c.status }];
@@ -290,7 +323,8 @@ function mockUndo({ p_event }) {
 	if (cl?.op === 'raise') Object.assign(claims.find((x) => x.id === cl.id), cl.claim_before);
 	if (cl?.op === 'update') {
 		const sib = e.payload.batch ? events.filter((x) => x.payload?.batch === e.payload.batch && !x.payload.undone) : [e];
-		for (const x of sib) { Object.assign(claims.find((y) => y.id === x.payload.claim.id), x.payload.claim.claim_before); x.payload.undone = true; }
+		for (const x of sib) { Object.assign(claims.find((y) => y.id === x.payload.claim.id), x.payload.claim.claim_before); x.payload.undone = true;
+			for (const l of ledger) if (l.credit?.allocs?.[0]?.claim_id === x.payload.claim.id && x.payload.action === 'claim_credited') { l.credit_id = null; l.credit = null; } }
 		return [200, { rto_id: e.rto_id, stage: r.stage, n: sib.length }];
 	}
 	if (e.payload.item_before) Object.assign(rtoItems.find((i) => i.id === e.payload.item_before.id), e.payload.item_before);
@@ -327,8 +361,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

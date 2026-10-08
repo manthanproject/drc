@@ -147,6 +147,7 @@
 			<h1 class="desk-only">Disputes to raise</h1>
 			<span class="pill {q.totals.n ? 'p-bad' : 'p-ok'}">{q.totals.n ? `${q.totals.n} to raise · ${inr(q.totals.value)}` : 'Nothing to raise'}</span>
 			{#if q.toFollow}<span class="pill p-warn">{q.toFollow} to follow up</span>{/if}
+			<a class="mlink small" href="/money">Money check →</a>
 			{#if ticketN}<span class="pill p-warn">{ticketN} for a ticket · {inr(ticketValue)}</span>{/if}
 		</div>
 		<p class="lead muted">Every claim ready to paste into Velocity. Raise one, mark it raised, the next one opens.</p>
@@ -244,6 +245,7 @@
 	.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
 	.head h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
 	.lead { margin: 4px 0 14px; font-size: 14px; }
+	.mlink { color: var(--acc); font-weight: 700; margin-left: auto; }
 	.undo { margin-bottom: 12px; }
 	.cols { display: flex; flex-direction: column; gap: 16px; }
 	.list { display: flex; flex-direction: column; gap: 8px; }

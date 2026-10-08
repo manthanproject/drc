@@ -182,7 +182,9 @@ export async function claimAction(claimId: string, raw: unknown) {
 		return Number.isFinite(n) && n > 0 ? String(Math.round(n * 100) / 100) : null;
 	};
 	if (action === 'approved' && money(b.approved_amount)) args.approved_amount = money(b.approved_amount)!;
-	if (action === 'credited') {
+	if (action === 'credited' && typeof b.ledger_id === 'string' && UUID.test(b.ledger_id)) {
+		args.ledger_id = b.ledger_id; // Phase 6: the money is a passbook line (its amount and date)
+	} else if (action === 'credited') {
 		const amt = money(b.amount);
 		if (!amt) error(400, 'Type the credit amount');
 		args.amount = amt;
