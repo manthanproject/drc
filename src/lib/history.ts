@@ -20,7 +20,8 @@ const ACTION: Record<string, string> = {
 	call_no_answer: 'Call: no answer',
 	reship_confirm: 'Confirmed received (was re-shipped)',
 	reship_reject: 'Re-ship was from new stock',
-	migrate_store_credit: 'Store credit moved to Ready Stock'
+	migrate_store_credit: 'Store credit moved to Ready Stock',
+	not_arrived: 'Marked NOT arrived (back to courier tracking)'
 };
 
 const stageName = (s: unknown) => (typeof s === 'string' ? BUCKETS[bucketOfStage(s)]?.label ?? s : '');

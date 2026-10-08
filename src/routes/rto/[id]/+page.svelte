@@ -109,6 +109,31 @@
 		undo = { text, eventId };
 		await invalidateAll();
 	}
+	// Wrongly marked received (wrong scan, old-sheet import) → back to courier tracking
+	const COURIER_STAGES = new Set(['in_flight', 'delayed', 'lost', 'awaiting_receipt', 'unknown_parcel']);
+	const canUnreceive = $derived(!!r.courier && !COURIER_STAGES.has(r.stage));
+	let naOpen = $state(false);
+	let naWhy = $state('');
+	async function notArrived() {
+		if (busy || !naWhy.trim()) return;
+		busy = true;
+		err = '';
+		try {
+			const res = await fetch(`/api/rto/${r.id}/action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'not_arrived', note: naWhy.trim() }) });
+			const b = await res.json().catch(() => ({}));
+			if (!res.ok) err = b?.message ?? 'Could not save';
+			else {
+				undo = { text: `Marked not arrived: back to ${b.to === 'awaiting_receipt' ? 'Not received' : b.to === 'lost' ? 'Lost' : 'In transit'}`, eventId: b.event_id };
+				naOpen = false;
+				naWhy = '';
+				await invalidateAll();
+			}
+		} catch {
+			err = 'No connection. Nothing saved.';
+		} finally {
+			busy = false;
+		}
+	}
 	async function undoDone() {
 		undo = null;
 		await invalidateAll();
@@ -227,6 +252,22 @@
 		{#if r.stage !== 'unknown_parcel'}
 			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
 		{/if}
+		{#if canUnreceive}
+			<div class="card o-na na">
+				{#if !naOpen}
+					<button class="lnkb" onclick={() => (naOpen = true)}>Parcel not actually here? Mark not arrived</button>
+				{:else}
+					<b>Mark not arrived</b>
+					<p class="small muted">For a parcel marked received by mistake (wrong scan, or the old-sheet import). DRC puts it back on courier tracking{r.courier_status === 'rto_delivered' || r.rto_delivered_at ? ' as Not received (MDND timer applies)' : ''}, clears the scan, takes its items out of Ready Stock and resets an unpaid refund.</p>
+					<label class="small" for="na-why">Why? (required)</label>
+					<textarea id="na-why" rows="2" maxlength="300" bind:value={naWhy} placeholder="e.g. Team checked the warehouse, parcel not here"></textarea>
+					<div class="narow">
+						<button class="go warnb" disabled={busy || !naWhy.trim()} onclick={notArrived}>Mark not arrived</button>
+						<button class="go" disabled={busy} onclick={() => { naOpen = false; naWhy = ''; }}>Cancel</button>
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		</div>
 	</main>
@@ -252,7 +293,7 @@
 	@media (max-width: 1023.98px) {
 		.left, .right { display: contents; }
 		.o-undo { order: 1; } .o-details { order: 2; } .o-claim { order: 3; } .o-dispute { order: 3; } .o-reship { order: 3; } .o-call { order: 4; }
-		.o-err { order: 5; } .o-picker { order: 6; } .o-notes { order: 7; } .o-history { order: 8; }
+		.o-err { order: 5; } .o-picker { order: 6; } .o-na { order: 6; } .o-notes { order: 7; } .o-history { order: 8; }
 	}
 	@media (min-width: 1024px) {
 		.cols { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 18px; align-items: start; }
@@ -285,6 +326,12 @@
 	.mini { height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 12.5px; cursor: pointer; }
 	.draft textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 10px 12px; font-size: 14px; line-height: 1.45; resize: vertical; }
 	.err { color: var(--bad); font-weight: 600; margin: 0; }
+	.na { display: flex; flex-direction: column; gap: 8px; }
+	.na p { margin: 0; }
+	.na textarea { width: 100%; box-sizing: border-box; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: inherit; padding: 10px; font: inherit; }
+	.narow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+	.lnkb { border: 0; background: none; color: var(--muted); font-weight: 600; font-size: 13.5px; cursor: pointer; text-align: left; padding: 2px 0; text-decoration: underline; }
+	.warnb { background: var(--warn, #b7791f); border-color: var(--warn, #b7791f); color: #fff; }
 	.notes { white-space: pre-line; font-size: 13.5px; margin: 6px 0 0; }
 	.ev { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
 	.ev:first-of-type { border-top: 0; }

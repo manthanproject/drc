@@ -32,6 +32,7 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_TICKET_REF_REQUIRED: [400, 'Type the ticket number'],
 	DRC_NO_PARCELS: [400, 'Tick at least one parcel'],
 	DRC_MIXED_COURIER: [400, 'One ticket per courier: tick parcels of one courier only'],
+	DRC_HAS_DAMAGE_CLAIM: [409, 'A damage or wrong-item claim is open on this parcel. Withdraw it first'],
 	DRC_HAS_CLAIM: [409, 'One of these parcels already has an open claim or ticket. Refresh the page'],
 	DRC_BAD_DATE: [400, 'Raised date must be today or earlier'],
 	DRC_TICKET_CHANGED: [409, 'The ticket was already updated, so it cannot be undone here'],
@@ -44,6 +45,9 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_BAD_LABEL: [400, 'Unknown label'],
 	DRC_BAD_SOURCE: [400, 'Unknown passbook source'],
 	DRC_NO_ROWS: [400, 'No passbook lines to import'],
+	DRC_REASON_REQUIRED: [400, 'Type why it has not arrived'],
+	DRC_ALREADY_NOT_ARRIVED: [409, 'This parcel is already marked as not arrived. Refresh the page'],
+	DRC_STOCK_USED: [409, 'An item of this parcel was already re-used from Ready Stock, so it cannot be marked not arrived'],
 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
 };
 
@@ -73,6 +77,12 @@ export function cleanArgs(raw: unknown): ActionArgs {
 
 export async function runAction(rtoId: string, action: string, args: ActionArgs) {
 	if (!UUID.test(rtoId)) error(400, 'Bad RTO id');
+	if (action === 'not_arrived') {
+		// wrongly marked received (wrong scan / old-sheet import) → back to courier tracking; reason required
+		const { data, error: e } = await db().rpc('mark_not_arrived', { p_rto: rtoId, p_note: args.note ?? '' });
+		if (e) fail(e.message.includes('DRC_HAS_CLAIM') ? 'DRC_HAS_DAMAGE_CLAIM' : e.message);
+		return data as { event_id: number; from: string; to: string };
+	}
 	if (!(ACTIONS as readonly string[]).includes(action)) error(400, 'Unknown action');
 	const { data, error: e } = await db().rpc('rto_action', { p_rto: rtoId, p_action: action, p_args: args });
 	if (e) fail(e.message);

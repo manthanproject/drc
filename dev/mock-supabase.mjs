@@ -327,6 +327,24 @@ function mockCn({ p_args: a }) {
 	l.credit_id = `cr-${l.id}`; l.credit = { external_ref: a.cn, allocs }; l.label = aside.length ? 'received_parcel' : null; l.label_note = aside.length ? `Set aside from ${a.cn}: ${aside.join(', ')} (parcel we got back, Velocity may take it back)` : null;
 	return [200, { event_id: first, cn: a.cn, amount: Number(l.amount), credit_date: l.at.slice(0, 10), orders: out, claims_created: made }];
 }
+function mockNotArrived({ p_rto, p_note }) {
+	const r = rows.find((x) => x.id === p_rto);
+	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (!String(p_note ?? '').trim()) return [400, { message: 'DRC_REASON_REQUIRED' }];
+	if (!r.courier) return [400, { message: 'DRC_NO_COURIER' }];
+	if (['in_flight', 'delayed', 'lost', 'awaiting_receipt', 'unknown_parcel'].includes(r.stage)) return [400, { message: 'DRC_ALREADY_NOT_ARRIVED' }];
+	if (claims.some((c) => c.rto_id === r.id && c.status !== 'closed' && !['lost', 'mdnd'].includes(c.reason))) return [400, { message: 'DRC_HAS_CLAIM' }];
+	const its = rtoItems.filter((i) => i.rto_id === r.id);
+	if (its.some((i) => i.reused_qty > 0)) return [400, { message: 'DRC_STOCK_USED' }];
+	const to = r.courier_status === 'rto_delivered' ? 'awaiting_receipt' : ['lost', 'rto_lost'].includes(r.courier_status) ? 'lost' : r.rto_delivered_at ? 'awaiting_receipt' : 'in_flight';
+	const before = { stage: r.stage, scanned_at: r.scanned_at, refund_state: r.refund_state, callback_attempts: r.callback_attempts, reship_state: r.reship_state, notes: r.notes ?? null };
+	const back = its.filter((i) => i.ready_stock_state === 'in_stock').map((i) => i.id);
+	for (const i of its) if (back.includes(i.id)) i.ready_stock_state = 'na';
+	Object.assign(r, { stage: to, scanned_at: null, refund_state: ['due', 'credit_due'].includes(r.refund_state) ? 'na' : r.refund_state, notes: [r.notes, `[8 Oct] Not arrived: ${p_note}`].filter(Boolean).join('\n') });
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'not_arrived', from: before.stage, to, before, items_back: back, args: { note: p_note } } });
+	return [200, { event_id: id, from: before.stage, to }];
+}
 function mockUndo({ p_event }) {
 	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
 	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
@@ -366,6 +384,7 @@ function mockUndo({ p_event }) {
 		return [200, { rto_id: e.rto_id, stage: r.stage, n: sib.length }];
 	}
 	if (e.payload.item_before) Object.assign(rtoItems.find((i) => i.id === e.payload.item_before.id), e.payload.item_before);
+	for (const id of e.payload.items_back ?? []) { const i = rtoItems.find((x) => x.id === id); if (i) i.ready_stock_state = 'in_stock'; }
 	Object.assign(r, e.payload.before);
 	e.payload.undone = true;
 	events.unshift({ id: ++eventId, source: 'user', rto_id: r.id, kind: 'undo', received_at: new Date().toISOString(), payload: { undid: e.id, restored_stage: r.stage } });
@@ -399,8 +418,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}
