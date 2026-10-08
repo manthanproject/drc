@@ -131,7 +131,10 @@ for (const it of rtoItems) Object.assign(it, { condition: it.condition ?? 'pendi
   const rs = rows.find((x) => x.stage === 'ready_stock' && x.forward_awb); Object.assign(rs, { order_no: '1419', order_value: 1728 }); }
 const claimMoney = claims.map((c) => ({ claim_id: c.id, received_amount: 0, outstanding: c.expected_amount ?? rows.find((r) => r.id === c.rto_id).order_value }));
 const ledger = [];
-const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia, ledger };
+// Refunds (0016): prepaid RTOs already owing money get a refund row, like the migration's back-fill
+const refunds = rows.filter((r) => ['due', 'credit_due'].includes(r.refund_state)).map((r, i) => ({ id: `00000000-0000-0000-0000-f${String(i).padStart(11, '0')}`, order_no: r.order_no, rto_id: r.id, reason: 'RTO, prepaid: customer does not want it (Ready Stock)', via: null, refund_to: r.refund_state === 'credit_due' ? 'store_credit' : 'original', amount: r.payment_mode === 'partial' ? r.amount_collected : r.order_value, status: 'to_refund', done_at: null, done_ref: null, extra: {}, source: 'rto', created_at: new Date(Date.now() - (i + 1) * 86400000).toISOString(), updated_at: new Date().toISOString(), deleted_at: null }));
+const refundLog = [];
+const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia, ledger, refunds };
 Object.defineProperty(tables, 'ledger_monthly', { enumerable: true, get() {
 	const m = new Map();
 	for (const l of ledger) { const k = [l.at.slice(0, 7), l.category, l.txn_type].join('|'); const a = m.get(k) ?? { source: 'velocity_passbook', month: l.at.slice(0, 7), category: l.category, txn_type: l.txn_type, n: 0, amount: 0 }; a.n++; a.amount += Number(l.amount); m.set(k, a); }
@@ -345,6 +348,65 @@ function mockNotArrived({ p_rto, p_note }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'not_arrived', from: before.stage, to, before, items_back: back, args: { note: p_note } } });
 	return [200, { event_id: id, from: before.stage, to }];
 }
+const RCOLS = ['order_no', 'rto_id', 'reason', 'via', 'refund_to', 'amount', 'status', 'done_at', 'done_ref', 'extra', 'deleted_at'];
+const rsnap = (f) => JSON.parse(JSON.stringify(Object.fromEntries(['id', 'source', ...RCOLS].map((k) => [k, f[k] ?? null]))));
+const ono = (v) => String(v ?? '').trim().replace(/^#\s*/, '').replace(/^dropy[-\s]*/i, '');
+function rtoFollow(f) {
+	const r = rows.find((x) => x.id === f.rto_id); if (!r) return;
+	if (f.status === 'done' && !f.deleted_at && ['due', 'credit_due'].includes(r.refund_state)) r.refund_state = r.refund_state === 'credit_due' || f.refund_to === 'store_credit' ? 'credit_done' : 'done';
+	else if (f.status !== 'done' && f.source === 'rto' && !f.deleted_at && ['done', 'credit_done'].includes(r.refund_state)) r.refund_state = r.refund_state === 'credit_done' ? 'credit_due' : 'due';
+}
+function mockRefund({ p_action, p_args: a }) {
+	const log = (f, action, before) => { const id = refundLog.length + 1; refundLog.push({ id, refund_id: f.id, action, before, at: Date.now(), undone: false }); return id; };
+	if (p_action === 'create') {
+		const no = ono(a.order_no); if (!no) return [400, { message: 'DRC_ORDER_REQUIRED' }];
+		const r = rows.find((x) => x.order_no === no);
+		const f = { id: `00000000-0000-0000-0000-e${String(++eventId).padStart(11, '0')}`, order_no: no, rto_id: r?.id ?? null, reason: a.reason || null, via: a.via || null, refund_to: a.refund_to || null,
+			amount: a.amount !== '' && a.amount != null ? Number(a.amount) : r ? (r.payment_mode === 'partial' ? r.amount_collected : r.order_value) : null, status: a.status || 'to_refund',
+			done_at: a.status === 'done' ? new Date().toISOString() : null, done_ref: a.done_ref || null, extra: Object.fromEntries(Object.entries(a.extra ?? {}).filter(([, v]) => v != null && v !== '')), source: 'manual',
+			created_at: new Date().toISOString(), updated_at: new Date().toISOString(), deleted_at: null };
+		refunds.unshift(f); const id = log(f, 'create', null); rtoFollow(f);
+		return [200, { refund_id: f.id, log_id: id, order_no: f.order_no, rto_id: f.rto_id, amount: f.amount }];
+	}
+	if (p_action === 'update' || p_action === 'delete') {
+		const f = refunds.find((x) => x.id === a.id && !x.deleted_at); if (!f) return [400, { message: 'DRC_REFUND_NOT_FOUND' }];
+		const before = rsnap(f);
+		if (p_action === 'delete') f.deleted_at = new Date().toISOString();
+		else {
+			if ('order_no' in a) { const no = ono(a.order_no); if (!no) return [400, { message: 'DRC_ORDER_REQUIRED' }]; if (no !== f.order_no) { f.order_no = no; f.rto_id = rows.find((x) => x.order_no === no)?.id ?? null; } }
+			for (const k of ['reason', 'via', 'refund_to', 'done_ref']) if (k in a) f[k] = a[k] || null;
+			if ('amount' in a) f.amount = a.amount === '' ? null : Number(a.amount);
+			if ('status' in a) { if (a.status === 'done' && f.status !== 'done') f.done_at = a.done_at || new Date().toISOString(); if (a.status !== 'done') f.done_at = null; f.status = a.status; }
+			if (a.extra) for (const [k, v] of Object.entries(a.extra)) { if (v == null || v === '') delete f.extra[k]; else f.extra[k] = v; }
+		}
+		f.updated_at = new Date().toISOString();
+		const id = log(f, p_action, before); rtoFollow(f);
+		return [200, { refund_id: f.id, log_id: id, status: f.status }];
+	}
+	if (p_action === 'undo') {
+		const l = refundLog.find((x) => x.id === Number(a.log_id)); if (!l) return [400, { message: 'DRC_NOT_FOUND' }];
+		if (l.undone) return [400, { message: 'DRC_ALREADY_UNDONE' }];
+		if (refundLog.some((x) => x.refund_id === l.refund_id && x.id > l.id && !x.undone)) return [400, { message: 'DRC_NOT_LATEST' }];
+		const f = refunds.find((x) => x.id === l.refund_id);
+		if (l.action === 'create') f.deleted_at = new Date().toISOString(); else Object.assign(f, l.before);
+		l.undone = true; rtoFollow(f);
+		return [200, { refund_id: f.id, status: f.status }];
+	}
+	return [400, { message: 'DRC_UNKNOWN_ACTION' }];
+}
+function mockImportRefunds({ p_rows, p_dry_run }) {
+	if (!p_dry_run && settings.some((x) => x.key === 'refund_sheet_import')) return [400, { message: 'DRC_ALREADY_IMPORTED' }];
+	let n = 0, have = 0; const by = {};
+	for (const x of p_rows) {
+		if (refunds.some((f) => f.order_no === x.order_no && !f.deleted_at) || (p_dry_run && false)) { have++; continue; }
+		n++; by[x.status] = (by[x.status] ?? 0) + 1;
+		if (!p_dry_run) refunds.push({ id: `00000000-0000-0000-0000-d${String(++eventId).padStart(11, '0')}`, order_no: x.order_no, rto_id: rows.find((r) => r.order_no === x.order_no)?.id ?? null, reason: x.reason || null, via: x.via, refund_to: x.refund_to, amount: null, status: x.status, done_at: x.status === 'done' ? new Date().toISOString() : null, done_ref: null, extra: {}, source: 'sheet', sheet_row: x.sheet_row, created_at: new Date(Date.now() - 20 * 86400000).toISOString(), updated_at: new Date().toISOString(), deleted_at: null });
+	}
+	const res = { new: n, already: have, by_status: by, dry_run: p_dry_run };
+	if (p_dry_run) return [400, { message: `DRC_DRY_RUN ${JSON.stringify(res)}` }];
+	settings.push({ key: 'refund_sheet_import', value: { ...res, at: new Date().toISOString() } });
+	return [200, res];
+}
 function mockUndo({ p_event }) {
 	const e = events.find((x) => x.id === p_event && x.kind === 'stage_change');
 	if (!e) return [400, { message: 'DRC_NOT_FOUND' }];
@@ -403,6 +465,13 @@ const uploads = [];
 http.createServer(async (req, res) => {
 	const u = new URL(req.url, 'http://x');
 	const tname = u.pathname.replace('/rest/v1/', '');
+	if (req.method === 'POST' && tname === 'settings') {
+		let body = '';
+		for await (const c of req) body += c;
+		for (const x of [].concat(JSON.parse(body || '[]'))) { const i = settings.findIndex((y) => y.key === x.key); if (i >= 0) settings[i] = { ...settings[i], ...x }; else settings.push(x); }
+		res.writeHead(201, { 'content-type': 'application/json' }).end('[]');
+		return;
+	}
 	if (req.method === 'POST' && !u.pathname.startsWith('/rest/v1/rpc/') && tables[tname] && tname !== 'settings') {
 		let body = '';
 		for await (const c of req) body += c;
@@ -418,8 +487,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

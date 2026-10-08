@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	let { text, eventId, ondone }: { text: string; eventId: number; ondone: (undone: boolean) => void } = $props();
+	let { text, eventId, ondone, url = '/api/rto/undo', body }: { text: string; eventId: number; ondone: (undone: boolean) => void; url?: string; body?: Record<string, unknown> } = $props();
 	let left = $state(10);
 	let busy = $state(false);
 	let err = $state('');
@@ -18,7 +18,7 @@
 		busy = true;
 		clearInterval(t);
 		try {
-			const r = await fetch('/api/rto/undo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event_id: eventId }) });
+			const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? { event_id: eventId }) });
 			if (!r.ok) {
 				err = (await r.json().catch(() => null))?.message ?? 'Undo failed';
 				busy = false;

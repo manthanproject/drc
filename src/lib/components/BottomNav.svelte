@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { active }: { active: 'home' | 'all' | 'scan' | 'claims' | 'stock' } = $props();
+	let { active }: { active: 'home' | 'all' | 'scan' | 'claims' | 'stock' | 'refunds' } = $props();
 </script>
 
 <nav class="nav" aria-label="Main">
@@ -7,7 +7,7 @@
 	<a href="/stock" class:on={active === 'stock'} aria-current={active === 'stock' ? 'page' : undefined}><i>▤</i>Ready Stock</a>
 	<a href="/scan" class="fab" class:fabon={active === 'scan'} aria-label="Scan a return" aria-current={active === 'scan' ? 'page' : undefined}><i>⌗</i></a>
 	<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}><i>⚑</i>Claims</a>
-	<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}><i>☰</i>All RTOs</a>
+	<a href="/refunds" class:on={active === 'refunds'} aria-current={active === 'refunds' ? 'page' : undefined}><i>₹</i>Refunds</a>
 </nav>
 
 <style>

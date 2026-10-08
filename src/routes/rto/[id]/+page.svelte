@@ -6,6 +6,7 @@
 	import ClaimCard from '#lib/components/ClaimCard.svelte';
 	import { onMount } from 'svelte';
 	import BottomNav from '#lib/components/BottomNav.svelte';
+	import { STATUS, VIA } from '#lib/refunds.ts';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
@@ -52,6 +53,8 @@
 	let busy = $state(false);
 	let err = $state('');
 
+	const RSTATUS = STATUS;
+	const RVIA = VIA;
 	const MONEY: Record<string, [string, string]> = {
 		due: ['Refund due', 'p-bad'], done: ['Refunded', 'p-ok'], credit_due: ['Store credit to give', 'p-warn'], credit_done: ['Store credit given', 'p-ok']
 	};
@@ -157,6 +160,7 @@
 				<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
 				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 				{#if MONEY[r.refund_state]}<dt>Money</dt><dd><span class="pill {MONEY[r.refund_state][1]}">{MONEY[r.refund_state][0]} {inr(paid)}</span></dd>{/if}
+				{#each data.refunds as f (f.id)}<dt>Refund</dt><dd><a class="rfl" href="/refunds?order={encodeURIComponent(f.order_no)}"><span class="pill {RSTATUS[f.status].pill}">{RSTATUS[f.status].label}</span>{f.amount != null ? ` ${inr(Number(f.amount))}` : ''}{f.via ? ` · ${RVIA[f.via]}` : ''} ›</a></dd>{/each}
 				<dt>Courier</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
 				{#if r.rto_delivered_at}<dt>Delivered back</dt><dd>{dateShort(r.rto_delivered_at)}</dd>{/if}
 				{#if r.last_event_text}<dt>Last courier event</dt><dd>{r.last_event_text}{r.last_event_at ? `, ${dateShort(r.last_event_at)}` : ''}</dd>{/if}
@@ -287,6 +291,8 @@
 	.upd { margin: 4px 0 0; }
 	.hval { margin-left: auto; font-size: 20px; }
 	.mdndhint { border-color: var(--acc); }
+	.rfl { color: inherit; text-decoration: none; font-weight: 600; }
+	:global(.p-info) { background: #e3eefa; color: #1f5f99; }
 	.mdndhint p { margin: 4px 0 10px; }
 
 	/* Phone: one column in the original order. PC: details + history left, actions right */

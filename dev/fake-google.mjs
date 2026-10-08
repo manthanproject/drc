@@ -2,6 +2,9 @@
 // Run vite with:  NODE_OPTIONS="--import ./dev/fake-google.mjs" DRC_UPLOADER_URL=https://script.google.com/fake DRC_UPLOADER_TOKEN=x npm run dev
 // Resumable uploads are pointed at the mock server (dev/mock-supabase.mjs, /fake-upload/…), which answers like Drive.
 const real = globalThis.fetch;
+// FAKE_REFUND_SHEET=path.json: rows of the "Dropy Refund" tab for the one-time import ([[{text, bg}]])
+import { readFileSync } from 'node:fs';
+if (process.env.FAKE_REFUND_SHEET) globalThis.__drcRefundSheet = JSON.parse(readFileSync(process.env.FAKE_REFUND_SHEET, 'utf8'));
 const files = new Map(); // id → {name, parent, mimeType}
 let n = 0;
 let tokens = 0;

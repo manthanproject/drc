@@ -12,7 +12,7 @@
 	const active = $derived.by(() => {
 		let p = page.url.pathname;
 		if (p.startsWith('/rto/')) p = safePath(page.url.searchParams.get('from'))?.split('?')[0] ?? '/rtos';
-		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : p.startsWith('/money') ? 'money' : p.startsWith('/stock') ? 'stock' : 'all';
+		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : p.startsWith('/money') ? 'money' : p.startsWith('/refunds') ? 'refunds' : p.startsWith('/stock') ? 'stock' : 'all';
 	});
 
 	function find(e: SubmitEvent) {
@@ -37,6 +37,7 @@
 			<a href="/stock" class:on={active === 'stock'} aria-current={active === 'stock' ? 'page' : undefined}>Ready Stock</a>
 			<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}>Claims</a>
 			<a href="/money" class:on={active === 'money'} aria-current={active === 'money' ? 'page' : undefined}>Money</a>
+			<a href="/refunds" class:on={active === 'refunds'} aria-current={active === 'refunds' ? 'page' : undefined}>Refunds</a>
 			<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}>All RTOs</a>
 		</nav>
 		<span class="grow"></span>
