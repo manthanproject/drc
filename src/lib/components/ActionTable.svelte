@@ -82,7 +82,7 @@
 	.chips { display: flex; flex-wrap: wrap; gap: 6px; }
 	.chips button { font-size: 12.5px; font-weight: 600; padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
 	.chips button.on { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
-	.grid { display: grid; grid-template-columns: 10px 130px minmax(0, 1fr) 110px 92px 100px 230px; gap: 12px; align-items: center; padding: 11px 16px; }
+	.grid { display: grid; grid-template-columns: 10px 96px minmax(0, 1fr) 82px 84px 104px 168px; gap: 12px; align-items: center; padding: 11px 16px; }
 	.hdr { padding: 8px 16px; background: var(--sunk); font-size: 11.5px; font-weight: 700; color: var(--muted); }
 	.row { border-top: 1px solid var(--line); }
 	.row:hover { background: color-mix(in srgb, var(--sunk) 55%, transparent); }
@@ -93,7 +93,11 @@
 	.what b { font-weight: 600; }
 	.what small { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.r { text-align: right; }
-	.acts { display: flex; gap: 8px; justify-content: flex-end; }
+	.acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; min-width: 0; }
+	.acts > :global(*) { flex: 0 1 auto; }
+	.acts:has(> :nth-child(2)) > :global(*) { flex: 1 1 100%; justify-content: center; }
+	.grid > :global(*) { min-width: 0; }
+	.grid :global(.pill) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 	.acts button, .btnlink { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; }
 	.acts .ok { background: var(--ok); border-color: var(--ok); color: #fff; }
 	.acts button:disabled { opacity: 0.6; cursor: wait; }
