@@ -277,8 +277,6 @@
 	.tabs button.on { border: 2px solid var(--acc); background: var(--acc-soft); font-weight: 700; }
 	.tabs span { color: var(--muted); font-weight: 600; margin-left: 2px; }
 	.err { color: var(--bad); font-weight: 600; }
-	:global(.p-info) { background: #e3eefa; color: #1f5f99; }
-	@media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light']) .p-info) { background: #172a3d; color: #8cc0f0; } }
 	.tbl { padding: 0; overflow-x: auto; }
 	table { width: 100%; border-collapse: collapse; font-size: 14px; }
 	th, td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: top; }

@@ -292,7 +292,6 @@
 	.hval { margin-left: auto; font-size: 20px; }
 	.mdndhint { border-color: var(--acc); }
 	.rfl { color: inherit; text-decoration: none; font-weight: 600; }
-	:global(.p-info) { background: #e3eefa; color: #1f5f99; }
 	.mdndhint p { margin: 4px 0 10px; }
 
 	/* Phone: one column in the original order. PC: details + history left, actions right */

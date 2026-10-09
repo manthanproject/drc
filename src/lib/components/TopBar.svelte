@@ -57,21 +57,21 @@
 
 <style>
 	.tb { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
-	.in { max-width: 1360px; margin: 0 auto; padding: 0 28px; display: flex; align-items: center; gap: 24px; }
+	.in { max-width: 1360px; margin: 0 auto; padding: 0 28px; min-height: 66px; display: flex; align-items: center; gap: 24px; }
 	.brand { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
 	.brand b { font-size: 17px; }
-	nav { display: flex; gap: 22px; }
-	nav a { padding: 18px 2px 15px; font-size: 14.5px; color: var(--muted); border-bottom: 2px solid transparent; }
-	nav a.on { color: var(--acc); border-color: var(--acc); font-weight: 700; }
+	nav { display: flex; gap: 4px; }
+	nav a { padding: 8px 14px; border-radius: 999px; font-size: 14.5px; font-weight: 600; color: var(--muted); }
+	nav a.on { color: var(--ink); background: var(--sunk); font-weight: 700; }
 	nav a:hover { color: var(--ink); }
 	.grow { flex: 1; }
-	.find { display: flex; align-items: center; gap: 8px; height: 40px; width: 300px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; color: var(--muted); }
+	.find { display: flex; align-items: center; gap: 8px; height: 42px; width: 300px; border-radius: 999px; border: 1px solid transparent; background: var(--sunk); padding: 0 16px; color: var(--muted); }
 	.find input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 13.5px; color: var(--ink); }
 	.find:focus-within { border-color: var(--acc); }
 	.sync { background: none; border: 0; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
 	.sync b { color: var(--ok); }
 	.sync.bad b { color: var(--bad); }
-	.scan { height: 40px; padding: 0 16px; border-radius: 12px; background: var(--acc); color: var(--acc-ink); display: inline-flex; align-items: center; font-weight: 700; white-space: nowrap; }
+	.scan { height: 42px; padding: 0 20px; border-radius: 999px; background: var(--acc); color: var(--acc-ink); display: inline-flex; align-items: center; font-weight: 700; white-space: nowrap; }
 	.scan.on { outline: 3px solid var(--acc-soft); }
 	.sr { position: absolute; left: -9999px; }
 </style>
