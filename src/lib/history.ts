@@ -87,6 +87,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 		}
 		case 'stock_backfill':
 			return { text: `Old Ready Stock: ${p.items ?? ''} item(s) listed as In stock`, who: 'DRC', muted: true };
+		case 'received_on_set':
+			return { text: `Arrived date set to ${dateShort(p.to + 'T12:00:00Z')} (was ${dateShort(p.from + 'T12:00:00Z')}; scanned ${dateShort(p.scan_day + 'T12:00:00Z')})`, who, muted: false };
 		case 'scan_cleared':
 			return { text: `Today's scan cleared, back to ${stageName(p.restored_stage)}${p.undone ? ` (${p.undone} change${p.undone === 1 ? '' : 's'} undone)` : ''}`, who, muted: false };
 		case 'test_reset':

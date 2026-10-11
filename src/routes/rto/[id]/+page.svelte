@@ -10,6 +10,7 @@
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ClearScan from '#lib/components/ClearScan.svelte';
+	import ArrivedEdit from '#lib/components/ArrivedEdit.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
@@ -175,6 +176,7 @@
 				{#if isReturn && velocityRefunded(r.vref)}<dt>Velocity refund</dt><dd><span class="pill p-bad">{r.vref}</span><small class="sub">We refund by PayU or bank only: check Velocity did not pay this customer too</small></dd>{/if}
 				<dt>{isReturn ? 'Return courier' : 'Courier'}</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
 				{#if r.rto_delivered_at}<dt>{isReturn ? 'Delivered to warehouse' : 'Delivered back'}</dt><dd>{dateShort(r.rto_delivered_at)}</dd>{/if}
+				{#if r.scanned_at && r.stage !== 'unknown_parcel'}<dt>Arrived at warehouse</dt><dd><ArrivedEdit rto={r} onsaved={() => invalidateAll()} /></dd>{/if}
 				{#if r.last_event_text}<dt>Last courier event</dt><dd>{r.last_event_text}{r.last_event_at ? `, ${dateShort(r.last_event_at)}` : ''}</dd>{/if}
 				{#if r.reship_date}<dt>Re-ship date</dt><dd>{dateShort(r.reship_date + 'T12:00:00Z')}</dd>{/if}
 			</dl>

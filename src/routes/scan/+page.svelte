@@ -6,6 +6,8 @@
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ClearScan from '#lib/components/ClearScan.svelte';
+	import ArrivedPicker from '#lib/components/ArrivedPicker.svelte';
+	import { arrivedDay, shortDay } from '#lib/arrived.ts';
 	import { isToday, istTime } from '#lib/scanlog.ts';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
@@ -142,6 +144,7 @@
 	<main class="content stack cols">
 		<div class="left">
 		<Scanner bind:this={scanner} oncode={onCode} />
+		<ArrivedPicker initial={data.arrived} />
 
 		{#if undo}
 			{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}
@@ -201,6 +204,7 @@
 						<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>
 						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>Delivered to warehouse {dateShort(r.rto_delivered_at)}</dd>{/if}
 					{:else if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
+					{#if r.scanned_at && arrivedDay(r)}<dt>Arrived</dt><dd>{shortDay(arrivedDay(r)!)}{#if r.received_on}<small class="sub">scanned {dateShort(r.scanned_at)}</small>{/if}</dd>{/if}
 				</dl>
 				{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
 				{#if detail.items.length}<div class="mitems">{#key r.id}<ItemList items={detail.items} rtoId={r.id} />{/key}</div>{/if}

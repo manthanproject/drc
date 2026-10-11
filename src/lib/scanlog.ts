@@ -67,6 +67,7 @@ export interface LogRow {
 	changed: boolean;
 	value: number;
 	undone: boolean;
+	arrived: string | null; // 'YYYY-MM-DD' when the parcel arrived on an earlier day than it was scanned
 }
 
 const label = (stage: string | null | undefined) => (stage ? BUCKETS[bucketOfStage(stage)]?.label ?? stage : '—');
@@ -96,7 +97,8 @@ export function buildScanLog(events: LogEvent[], rtos: Map<string, Rto>): LogRow
 			nowTone: tone(r?.stage),
 			changed: !!r && r.stage !== scannedStage,
 			value: r ? num(r.order_value) : 0,
-			undone: !!p.undone
+			undone: !!p.undone,
+			arrived: (r as { received_on?: string | null } | undefined)?.received_on ?? null
 		});
 	}
 	return rows.sort((a, b) => a.at.localeCompare(b.at) || a.eventId - b.eventId);
@@ -122,8 +124,8 @@ const csvCell = (v: unknown) => {
 };
 
 export function scanLogCsv(day: string, rows: LogRow[]): string {
-	const head = ['Date', 'Time (IST)', 'Order', 'Courier', 'AWB', 'Scanned as', 'Status now', 'Value (INR)', 'Undone'];
-	const lines = rows.map((r) => [day, r.time, r.order, r.courier, r.awb, r.scannedAs, r.now, Math.round(r.value), r.undone ? 'yes' : ''].map(csvCell).join(','));
+	const head = ['Date', 'Time (IST)', 'Order', 'Courier', 'AWB', 'Scanned as', 'Status now', 'Value (INR)', 'Undone', 'Arrived on'];
+	const lines = rows.map((r) => [day, r.time, r.order, r.courier, r.awb, r.scannedAs, r.now, Math.round(r.value), r.undone ? 'yes' : '', r.arrived ?? day].map(csvCell).join(','));
 	return '﻿' + [head.join(','), ...lines].join('\r\n') + '\r\n'; // BOM so Excel reads ₹/UTF-8 correctly
 }
 

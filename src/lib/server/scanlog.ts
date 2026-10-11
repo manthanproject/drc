@@ -2,7 +2,7 @@ import { db } from './supabase.ts';
 import { buildScanLog, dayRange, type LogEvent } from '#lib/scanlog.ts';
 import type { Rto } from '#lib/dashboard.ts';
 
-const COLS = 'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, legacy_source';
+const COLS = 'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, legacy_source, scanned_at, received_on';
 
 /** Read-only: that IST day's scans from the events history, joined to the RTOs as they are now. */
 export async function loadScanLog(day: string) {

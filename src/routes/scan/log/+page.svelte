@@ -3,41 +3,56 @@
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import { rtoHref } from '#lib/scan.ts';
 	import { inr } from '#lib/dashboard.ts';
+	import { shiftDay } from '#lib/scanlog.ts';
+	import { shortDay, MAX_BACK_DAYS } from '#lib/arrived.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const here = $derived(`/scan/log?d=${data.day}`);
 
-	// Clear today's scans (scanned by mistake / wrong status): each parcel goes back as it was before the scan
-	const clearable = $derived.by(() => {
-		if (data.day !== data.today) return [];
-		const seen = new Map<string, { rtoId: string; order: string; time: string; scannedAs: string }>();
-		for (const r of data.rows) if (r.rtoId && !r.undone && !seen.has(r.rtoId)) seen.set(r.rtoId, { rtoId: r.rtoId, order: r.order, time: r.time, scannedAs: r.scannedAs });
+	// Fix a batch: "Arrived on" date (any day's scans) or Clear today's scans (scanned by mistake / wrong status)
+	type Mode = 'arrived' | 'clear';
+	const live = $derived.by(() => {
+		const seen = new Map<string, { rtoId: string; order: string; time: string; scannedAs: string; arrived: string | null }>();
+		for (const r of data.rows) if (r.rtoId && !r.undone && !seen.has(r.rtoId)) seen.set(r.rtoId, { rtoId: r.rtoId, order: r.order, time: r.time, scannedAs: r.scannedAs, arrived: r.arrived });
 		return [...seen.values()];
 	});
-	let clearing = $state(false);
+	let mode = $state<Mode | null>(null);
 	let picked = $state<string[]>([]);
+	let arrivedOn = $state('');
 	let busy = $state(false);
-	let result = $state<{ ok: string[]; bad: string[] } | null>(null);
-	async function clearPicked() {
-		if (busy || !picked.length) return;
+	let result = $state<{ ok: string[]; bad: string[]; text: string } | null>(null);
+	function start(m: Mode) {
+		mode = m;
+		picked = [];
+		result = null;
+		arrivedOn = shiftDay(data.day, -1);
+	}
+	async function run() {
+		if (busy || !picked.length || !mode || (mode === 'arrived' && !arrivedOn)) return;
 		busy = true;
 		const ok: string[] = [];
 		const bad: string[] = [];
 		for (const id of picked) {
-			const row = clearable.find((c) => c.rtoId === id);
+			const row = live.find((c) => c.rtoId === id);
+			const req = mode === 'clear'
+				? { url: `/api/rto/${id}/action`, body: { action: 'clear_scan' } }
+				: { url: `/api/rto/${id}/received`, body: { day: arrivedOn === data.day ? null : arrivedOn } };
 			try {
-				const res = await fetch(`/api/rto/${id}/action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'clear_scan' }) });
+				const res = await fetch(req.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req.body) });
 				const b = await res.json().catch(() => ({}));
 				if (res.ok) ok.push(row?.order ?? id);
-				else bad.push(`${row?.order ?? id}: ${b?.message ?? 'could not clear'}`);
+				else bad.push(`${row?.order ?? id}: ${b?.message ?? 'not saved'}`);
 			} catch {
 				bad.push(`${row?.order ?? id}: no connection`);
 			}
 		}
-		result = { ok, bad };
+		const text = mode === 'clear'
+			? `Cleared ${ok.join(', ')}. Scan ${ok.length === 1 ? 'it' : 'them'} again on the Scan screen.`
+			: `Arrived date set to ${shortDay(arrivedOn)} for ${ok.join(', ')}.`;
+		result = { ok, bad, text };
 		picked = [];
-		clearing = false;
+		mode = null;
 		busy = false;
 		await invalidateAll();
 	}
@@ -67,23 +82,37 @@
 
 		{#if result}
 			<div class="card res" role="status">
-				{#if result.ok.length}<p class="okl">Cleared {result.ok.join(', ')}. Scan {result.ok.length === 1 ? 'it' : 'them'} again on the Scan screen.</p>{/if}
+				{#if result.ok.length}<p class="okl">{result.text}</p>{/if}
 				{#each result.bad as b}<p class="badl small">{b}</p>{/each}
 			</div>
 		{/if}
-		{#if clearable.length}
-			{#if !clearing}
-				<button class="lnkb" onclick={() => { clearing = true; result = null; }}>Scanned something by mistake? Clear today's scans</button>
+		{#if live.length}
+			{#if !mode}
+				<div class="tools">
+					<button class="lnkb" onclick={() => start('arrived')}>Parcels arrived on an earlier day? Fix arrived date</button>
+					{#if data.day === data.today}<button class="lnkb" onclick={() => start('clear')}>Scanned something by mistake? Clear today's scans</button>{/if}
+				</div>
 			{:else}
 				<div class="card clr">
-					<b>Clear today's scans</b>
-					<p class="small muted">Tick the parcels to clear. Each goes back exactly as it was before today's scan (status, Ready Stock, refund row and a draft claim are undone), so you can scan it again. Not possible if its claim is already raised or its refund is marked Done.</p>
-					{#each clearable as c (c.rtoId)}
-						<label class="pick"><input type="checkbox" value={c.rtoId} bind:group={picked} /><span class="mono">{c.time}</span><b>{c.order}</b><span class="small muted">{c.scannedAs}</span></label>
+					{#if mode === 'clear'}
+						<b>Clear today's scans</b>
+						<p class="small muted">Tick the parcels to clear. Each goes back exactly as it was before today's scan (status, Ready Stock, refund row and a draft claim are undone), so you can scan it again. Not possible if its claim is already raised or its refund is marked Done.</p>
+					{:else}
+						<b>Fix arrived date</b>
+						<p class="small muted">For parcels that reached the warehouse before the day they were scanned. Only the arrived date changes; the scan time stays in the log.</p>
+						<label class="small arow">Arrived on <input type="date" bind:value={arrivedOn} min={shiftDay(data.day, -MAX_BACK_DAYS)} max={data.day} /></label>
+					{/if}
+					<label class="pick all"><input type="checkbox" checked={picked.length === live.length} onchange={(e) => (picked = e.currentTarget.checked ? live.map((c) => c.rtoId) : [])} /><span></span><b>All {live.length}</b><span></span></label>
+					{#each live as c (c.rtoId)}
+						<label class="pick"><input type="checkbox" value={c.rtoId} bind:group={picked} /><span class="mono">{c.time}</span><b>{c.order}{#if c.arrived}<span class="small muted arr">arr. {shortDay(c.arrived)}</span>{/if}</b><span class="small muted">{c.scannedAs}</span></label>
 					{/each}
 					<div class="crow">
-						<button class="go warnb" disabled={busy || !picked.length} onclick={clearPicked}>{busy ? 'Clearing…' : `Clear ${picked.length || ''} scan${picked.length === 1 ? '' : 's'}`}</button>
-						<button class="go" disabled={busy} onclick={() => { clearing = false; picked = []; }}>Cancel</button>
+						{#if mode === 'clear'}
+							<button class="go warnb" disabled={busy || !picked.length} onclick={run}>{busy ? 'Clearing…' : `Clear ${picked.length || ''} scan${picked.length === 1 ? '' : 's'}`}</button>
+						{:else}
+							<button class="go okb" disabled={busy || !picked.length || !arrivedOn} onclick={run}>{busy ? 'Saving…' : `Set ${picked.length || ''} to ${arrivedOn ? shortDay(arrivedOn) : '…'}`}</button>
+						{/if}
+						<button class="go" disabled={busy} onclick={() => { mode = null; picked = []; }}>Cancel</button>
 					</div>
 				</div>
 			{/if}
@@ -97,7 +126,7 @@
 				{#each data.rows as r (r.eventId)}
 					<svelte:element this={r.rtoId ? 'a' : 'div'} class="tr" class:undone={r.undone} role="row" href={r.rtoId ? rtoHref(r.rtoId, here) : undefined}>
 						<span class="time mono">{r.time}</span>
-						<span class="ord">{r.order}{#if r.undone} <span class="pill p-mute">undone</span>{/if}</span>
+						<span class="ord">{r.order}{#if r.undone} <span class="pill p-mute">undone</span>{/if}{#if r.arrived && !r.undone} <span class="pill p-warn">arrived {shortDay(r.arrived)}</span>{/if}</span>
 						<span class="small cour">{r.courier}<span class="mono muted blk">{r.awb}</span></span>
 						<span><span class="pill p-{r.scannedTone}">{r.scannedAs}</span></span>
 						<span class="nowc">{#if r.changed}<span class="small muted mobile-only">now </span><span class="pill p-{r.nowTone}">{r.now}</span>{:else}<span class="muted small desk-only">same</span>{/if}</span>
@@ -136,6 +165,11 @@
 	.undone { opacity: 0.5; }
 	a.tr:hover { background: color-mix(in srgb, var(--sunk) 55%, transparent); }
 	.note { text-align: center; }
+	.tools { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+	.arow { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+	.arow input { height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: inherit; padding: 0 10px; font: inherit; }
+	.go.okb { background: var(--acc); border-color: var(--acc); color: #fff; }
+	.arr { margin-left: 6px; font-weight: 600; }
 	.lnkb { align-self: flex-start; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 2px 0; text-decoration: underline; }
 	.clr { display: flex; flex-direction: column; gap: 8px; }
 	.clr p, .res p { margin: 0; }

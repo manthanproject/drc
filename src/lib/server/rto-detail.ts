@@ -7,7 +7,7 @@ import { isDummyItem } from '#lib/claims.ts';
 const COLS =
 	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, amount_collected, ' +
 	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, last_event_text, ' +
-	'last_event_location, legacy_source, scanned_at, callback_attempts, callback_outcome, reship_date, refund_state, notes, ' +
+	'last_event_location, legacy_source, scanned_at, received_on, callback_attempts, callback_outcome, reship_date, refund_state, notes, ' +
 	'reship_order_no, reship_awb, reship_created_at, reship_courier_status, reship_state, media_folder_id, media_state, ' +
 	'kind, return_id, return_reason, vref:courier_raw->>refund_status, ' +
 	'ship:courier_raw->shipping_address, disputes:courier_raw->shipment_disputes';
@@ -17,6 +17,7 @@ export interface RtoFull extends Rto {
 	last_event_text: string | null;
 	last_event_location: string | null;
 	scanned_at: string | null;
+	received_on?: string | null;
 	callback_attempts: number;
 	callback_outcome: string | null;
 	reship_date: string | null;

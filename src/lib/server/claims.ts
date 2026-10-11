@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { db } from './supabase.ts';
-import { fail, UUID } from './actions.ts';
+import { fail, UUID, applyArrived } from './actions.ts';
 import { claimFolder, startUpload, shareAnyoneReader, ensureShortcut, trashUnused, DriveError } from './drive.ts';
 import { allRtos } from './rto-data.ts';
 import { findPacking } from './droppy.ts';
@@ -18,6 +18,7 @@ interface ClaimRto {
 	order_value: number | string | null;
 	rto_delivered_at: string | null;
 	scanned_at: string | null;
+	received_on?: string | null;
 	kind?: string | null;
 	return_id?: string | null;
 }
@@ -26,7 +27,7 @@ async function loadRto(id: string): Promise<ClaimRto> {
 	if (!UUID.test(id)) error(404, 'RTO not found');
 	const { data, error: e } = await db()
 		.from('rtos')
-		.select('id, courier, order_no, forward_awb, order_value, rto_delivered_at, scanned_at, kind, return_id')
+		.select('id, courier, order_no, forward_awb, order_value, rto_delivered_at, scanned_at, received_on, kind, return_id')
 		.eq('id', id)
 		.maybeSingle();
 	if (e) throw new Error(`rtos: ${e.message}`);
@@ -70,7 +71,7 @@ export interface MediaIn {
 }
 
 /** Saves the claim in one go (create_rto_claim). Drive first: share the folder, add the packing shortcut. */
-export async function createClaim(rtoId: string, raw: unknown) {
+export async function createClaim(rtoId: string, raw: unknown, arrived: string | null = null) {
 	const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
 	const reason = reasonOf(b.reason);
 	if (!reason) error(400, 'Pick a reason');
@@ -119,7 +120,8 @@ export async function createClaim(rtoId: string, raw: unknown) {
 		forward_awb: r.forward_awb,
 		order_value: r.order_value,
 		rto_delivered_at: r.rto_delivered_at,
-		received_at: r.scanned_at ?? new Date().toISOString(),
+		// the day it reached the warehouse: "Arrived on" from the Scan screen / RTO page, else the scan time
+		received_at: scanned && !r.scanned_at && arrived ? `${arrived}T06:30:00Z` : r.received_on && r.scanned_at ? `${r.received_on}T06:30:00Z` : (r.scanned_at ?? new Date().toISOString()),
 		reason: reason.key,
 		items: affected.map((i) => ({ title: i.title, qty: i.qty })),
 		links: { packing: packingUrl, unboxing: unboxing ? driveFileUrl(unboxing.drive_file_id) : null, folder: driveFolderUrl(folder.id) },
@@ -132,6 +134,7 @@ export async function createClaim(rtoId: string, raw: unknown) {
 		p_args: { reason: reason.key, items, restock, media, folder_id: folder.id, description, note, scanned }
 	});
 	if (e) fail(e.message);
+	if (scanned) await applyArrived(r.id, arrived);
 
 	// Retakes and failed tries stay in the folder otherwise; Velocity should see only what the claim uses
 	let trashed = 0;

@@ -356,6 +356,20 @@ function mockNotArrived({ p_rto, p_note }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'not_arrived', from: before.stage, to, before, items_back: back, args: { note: p_note } } });
 	return [200, { event_id: id, from: before.stage, to }];
 }
+function mockReceivedOn({ p_rto, p_day, p_today_scan_only }) {
+	const r = rows.find((x) => x.id === p_rto);
+	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (!r.scanned_at) return [400, { message: 'DRC_NOT_SCANNED' }];
+	const ist = (t) => new Date(Date.parse(t) + 19_800_000).toISOString().slice(0, 10);
+	const scan = ist(r.scanned_at);
+	if (p_today_scan_only && scan !== ist(new Date().toISOString())) return [200, { skipped: true }];
+	const back = new Date(Date.parse(scan + 'T00:00:00Z') - 30 * 86_400_000).toISOString().slice(0, 10);
+	if (p_day && (p_day > scan || p_day < back)) return [400, { message: 'DRC_BAD_RECEIVED_DATE' }];
+	const from = r.received_on ?? scan;
+	r.received_on = p_day && p_day !== scan ? p_day : null;
+	events.unshift({ id: ++eventId, source: 'user', rto_id: r.id, kind: 'received_on_set', received_at: new Date().toISOString(), payload: { from, to: r.received_on ?? scan, scan_day: scan } });
+	return [200, { changed: true, received_on: r.received_on ?? scan }];
+}
 function mockClearScan({ p_rto }) {
 	const r = rows.find((x) => x.id === p_rto);
 	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
@@ -367,7 +381,7 @@ function mockClearScan({ p_rto }) {
 	const first = evs.reduce((a, e) => (!a || e.id < a.id ? e : a), null);
 	for (const e of evs) e.payload.undone = true;
 	const before = first?.payload?.before ?? {};
-	Object.assign(r, { stage: before.stage ?? 'awaiting_receipt', scanned_at: null, refund_state: before.refund_state ?? 'na' });
+	Object.assign(r, { stage: before.stage ?? 'awaiting_receipt', scanned_at: null, received_on: null, refund_state: before.refund_state ?? 'na' });
 	for (const i of rtoItems.filter((i) => i.rto_id === r.id)) if (i.ready_stock_state === 'in_stock') i.ready_stock_state = 'na';
 	const id = ++eventId;
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'scan_cleared', received_at: new Date().toISOString(), payload: { undone: evs.length, restored_stage: r.stage } });
@@ -512,8 +526,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds', 'clear_today_scan'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, clear_today_scan: mockClearScan, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds', 'clear_today_scan', 'set_received_on'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, clear_today_scan: mockClearScan, set_received_on: mockReceivedOn, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

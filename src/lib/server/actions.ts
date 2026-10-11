@@ -50,6 +50,7 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_STOCK_USED: [409, 'An item of this parcel was already re-used from Ready Stock, so it cannot be marked not arrived'],
 	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page'],
 	DRC_CLAIM_RAISED_SCAN: [409, 'A claim from this scan is already raised with the courier, so the scan cannot be cleared'],
+	DRC_BAD_RECEIVED_DATE: [400, 'Arrived date must be on or before the scan day, and at most 30 days before it'],
 	DRC_NOT_SCANNED: [409, 'This parcel is not scanned, nothing to clear. Refresh the page'],
 	DRC_SCAN_NOT_TODAY: [409, "Only today's scans can be cleared. For an older scan use Change status or Mark not arrived"],
 	DRC_REFUND_PAID: [409, 'The refund for this parcel is already marked Done in Refunds, so the scan cannot be cleared'],
@@ -80,7 +81,22 @@ export function cleanArgs(raw: unknown): ActionArgs {
 	return out;
 }
 
-export async function runAction(rtoId: string, action: string, args: ActionArgs) {
+/** After a scan: save the "Arrived on" day picked on the Scan screen. Never fails the scan itself. */
+export async function applyArrived(rtoId: string, day: string | null) {
+	if (!day) return;
+	const { error: e } = await db().rpc('set_received_on', { p_rto: rtoId, p_day: day, p_today_scan_only: true });
+	if (e) console.error('arrived date not saved', rtoId, e.message);
+}
+
+/** Staff fix of the arrived date of a scanned parcel; null = arrived the day it was scanned. */
+export async function setReceivedOn(rtoId: string, day: string | null) {
+	if (!UUID.test(rtoId)) error(400, 'Bad RTO id');
+	const { data, error: e } = await db().rpc('set_received_on', { p_rto: rtoId, p_day: day, p_today_scan_only: false });
+	if (e) fail(e.message);
+	return data as { changed: boolean; received_on: string };
+}
+
+export async function runAction(rtoId: string, action: string, args: ActionArgs, arrived: string | null = null) {
 	if (!UUID.test(rtoId)) error(400, 'Bad RTO id');
 	if (action === 'not_arrived') {
 		// wrongly marked received (wrong scan / old-sheet import) → back to courier tracking; reason required
@@ -97,6 +113,7 @@ export async function runAction(rtoId: string, action: string, args: ActionArgs)
 	if (!(ACTIONS as readonly string[]).includes(action)) error(400, 'Unknown action');
 	const { data, error: e } = await db().rpc('rto_action', { p_rto: rtoId, p_action: action, p_args: args });
 	if (e) fail(e.message);
+	if (args.scanned) await applyArrived(rtoId, arrived);
 	return data as { event_id: number; from: string; to: string };
 }
 
