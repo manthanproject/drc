@@ -80,6 +80,11 @@
 		<button class="opt" class:sel={open === 'hold'} disabled={busy} onclick={() => toggle('hold')}>
 			<span class="ic warn">❚❚</span><span><b>Decide later</b><small>Hold</small></span>
 		</button>
+		{#if claimHref}
+			<a class="opt" href={claimHref} aria-disabled={busy}>
+				<span class="ic bad">!</span><span><b>Claim</b><small>Wrong item, empty, damaged: video + photos</small></span>
+			</a>
+		{/if}
 		<button class="opt" disabled={busy} onclick={() => save('close')}>
 			<span class="ic mute">✔</span><span><b>Close</b><small>Nothing to do</small></span>
 		</button>

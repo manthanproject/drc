@@ -551,6 +551,11 @@ http.createServer(async (req, res) => {
 	// minimal PostgREST filters: col=eq.x, col=in.(a,b), col=not.is.null, order=col.asc.nullsfirst
 	for (const [k, v] of u.searchParams) {
 		if (['select', 'order', 'offset', 'limit'].includes(k)) continue;
+		if (k === 'or') { // or=(kind.eq.rto,stage.eq.claim): keep rows matching any eq
+			const conds = v.replace(/^\(|\)$/g, '').split(',').map((c) => c.split('.eq.'));
+			data = data.filter((r) => conds.some(([col, val]) => String(r[col] ?? (col === 'kind' ? 'rto' : '')) === val));
+			continue;
+		}
 		if (v.startsWith('eq.')) data = data.filter((r) => String(r[k]) === v.slice(3));
 		else if (v.startsWith('in.(')) { const vs = v.slice(4, -1).split(','); data = data.filter((r) => vs.includes(String(r[k] ?? 'none'))); }
 		else if (v === 'not.is.null') data = data.filter((r) => r[k] != null);

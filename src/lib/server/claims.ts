@@ -18,13 +18,15 @@ interface ClaimRto {
 	order_value: number | string | null;
 	rto_delivered_at: string | null;
 	scanned_at: string | null;
+	kind?: string | null;
+	return_id?: string | null;
 }
 
 async function loadRto(id: string): Promise<ClaimRto> {
 	if (!UUID.test(id)) error(404, 'RTO not found');
 	const { data, error: e } = await db()
 		.from('rtos')
-		.select('id, courier, order_no, forward_awb, order_value, rto_delivered_at, scanned_at')
+		.select('id, courier, order_no, forward_awb, order_value, rto_delivered_at, scanned_at, kind, return_id')
 		.eq('id', id)
 		.maybeSingle();
 	if (e) throw new Error(`rtos: ${e.message}`);
@@ -120,7 +122,9 @@ export async function createClaim(rtoId: string, raw: unknown) {
 		received_at: r.scanned_at ?? new Date().toISOString(),
 		reason: reason.key,
 		items: affected.map((i) => ({ title: i.title, qty: i.qty })),
-		links: { packing: packingUrl, unboxing: unboxing ? driveFileUrl(unboxing.drive_file_id) : null, folder: driveFolderUrl(folder.id) }
+		links: { packing: packingUrl, unboxing: unboxing ? driveFileUrl(unboxing.drive_file_id) : null, folder: driveFolderUrl(folder.id) },
+		customer_return: r.kind === 'customer_return',
+		return_id: r.return_id ?? null
 	});
 
 	const { data, error: e } = await db().rpc('create_rto_claim', {

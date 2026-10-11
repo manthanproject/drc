@@ -97,3 +97,12 @@ test('history says what the customer got back from a return', async () => {
 	assert.match(ev('close', 'refund', 'closed'), /not resellable · refund$/);
 	assert.match(ev('ready_stock', 'credit', 'ready_stock'), /store credit$/);
 });
+
+test('claim text for a customer return names the return pickup and return AWB', async () => {
+	const { claimRemarks } = await import('../src/lib/claims.ts');
+	const t = claimRemarks({ order_no: '5301', forward_awb: '39879817355386', order_value: 2009, rto_delivered_at: '2026-10-10T10:13:49Z', received_at: '2026-10-11T10:00:00Z',
+		reason: 'wrong', items: [{ title: 'White Flower Balm', qty: 1 }], links: { unboxing: 'https://drive/v', folder: 'https://drive/f' }, customer_return: true, return_id: 'Dropy-5301-ALL-R1' });
+	assert.match(t, /^Return pickup Dropy-5301-ALL-R1 for order #Dropy-5301 \(return AWB 39879817355386\) was delivered to our warehouse on 10 Oct 2026\. On opening it, we found a different product inside/);
+	const rto = claimRemarks({ order_no: '5301', forward_awb: 'X', order_value: 1, rto_delivered_at: null, received_at: '2026-10-11T10:00:00Z', reason: 'damaged', items: [], links: {} });
+	assert.match(rto, /^RTO for order #Dropy-5301 \(AWB X\)/);
+});

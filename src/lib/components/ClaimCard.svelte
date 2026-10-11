@@ -3,6 +3,7 @@
 	import { dateShort, inr, num } from '#lib/dashboard.ts';
 	import { istTime } from '#lib/scanlog.ts';
 	import FollowUpPanel from './FollowUpPanel.svelte';
+	import { FRESHDESK_NEW } from '#lib/tickets.ts';
 	import { FOLLOW_OPEN, type FollowClaim, type TextRto } from '#lib/followups.ts';
 
 	type ClaimRow = FollowClaim & { id: string; reason: string; status: string; ticket_ref: string | null; claimed_amount: number | string; deadline_at: string | null; raised_at: string | null; description: string | null; created_at: string; close_result?: string | null; closed_at?: string | null };
@@ -39,7 +40,9 @@
 	const st = $derived(claimStatus(claim.status));
 	const vType = $derived(velocityDisputeType(claim.reason));
 	const draft = $derived(claim.status === 'draft');
-	const ticket = $derived(claim.channel === 'support_ticket');
+	// a customer return's claim is raised as a Velocity support ticket (panel disputes are for forward shipments only)
+	const isRet = $derived(rto?.kind === 'customer_return');
+	const ticket = $derived(claim.channel === 'support_ticket' && !isRet);
 	const byKind = (k: string) => media.find((m) => m.kind === k);
 	const photos = $derived(['front', 'back', 'label'].map((k) => [k, byKind(k)] as const).filter(([, m]) => !!m));
 	const orderName = $derived(/^\d+(-\d+)*$/.test(orderNo ?? '') ? `#Dropy-${orderNo}` : orderNo ?? '');
@@ -108,7 +111,7 @@
 {:else}
 <div class="card claim">
 	<div class="head">
-		<b>RTO claim · {claimReasonLabel(claim.reason)}</b>
+		<b>{isRet ? 'Return claim' : 'RTO claim'} · {claimReasonLabel(claim.reason)}</b>
 		<span class="pill p-{st.tone}">{st.label}</span>
 	</div>
 	<p class="small muted meta">
@@ -125,15 +128,22 @@
 			<li>
 				<span class="n">1</span>
 				<div class="sb">
+					{#if isRet}
+						<b>Open a Velocity support ticket</b>
+						<div class="row"><a class="go dark" href={FRESHDESK_NEW} target="_blank" rel="noopener noreferrer">Open Velocity support ↗</a><span class="small muted">AWBs: the return AWB · Ticket Type: Return</span></div>
+					{:else}
 					<b>Open the order in Velocity</b>
 					<div class="row"><a class="go dark" href={velocityOrderUrl(orderNo)} target="_blank" rel="noopener noreferrer">Open {orderName} ↗</a><span class="small muted">then Order Details → Dispute tab</span></div>
+					{/if}
 				</div>
 			</li>
 			<li>
 				<span class="n">2</span>
 				<div class="sb">
-					<b>Choose this dispute type</b>
-					{#if vType}
+					<b>{isRet ? 'Say what was inside' : 'Choose this dispute type'}</b>
+					{#if isRet}
+						<span class="small muted">Velocity's dispute tab is for forward shipments only, so a return goes as a ticket. Start the description with: <b>{vType ?? 'Return problem'}</b></span>
+					{:else if vType}
 						<div class="row"><span class="vt">{vType}</span><button class="go" onclick={() => copy(vType, 'type')}>{copied === 'type' ? 'Copied ✓' : 'Copy'}</button></div>
 					{:else}<span class="small muted">No panel type for this reason: use a support ticket.</span>{/if}
 				</div>

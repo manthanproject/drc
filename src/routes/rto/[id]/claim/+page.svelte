@@ -170,12 +170,12 @@
 	const sizeText = (n?: number) => (n ? (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`) : '');
 </script>
 
-<svelte:head><title>RTO claim {orderLabel(r)} · DRC</title></svelte:head>
+<svelte:head><title>{r.kind === 'customer_return' ? 'Return' : 'RTO'} claim {orderLabel(r)} · DRC</title></svelte:head>
 
 <div class="app">
 	<header class="topbar">
 		<a class="back" href={backHref} aria-label="Back">‹</a>
-		<h1>RTO claim · {orderLabel(r)}</h1>
+		<h1>{r.kind === 'customer_return' ? 'Return' : 'RTO'} claim · {orderLabel(r)}</h1>
 		<span class="pill p-mute">{pay.label}</span>
 	</header>
 
@@ -202,7 +202,8 @@
 								<button type="button" role="radio" aria-checked={reason === x.key} class="chip" class:on={reason === x.key} onclick={() => (reason = x.key)}>{x.label}</button>
 							{/each}
 						</div>
-						{#if vType}<p class="small muted vt">Velocity dispute type: <b>{vType}</b></p>{/if}
+						{#if r.kind === 'customer_return'}<p class="small muted vt">A customer return is claimed with a Velocity <b>support ticket</b> (type Return), not the dispute tab. DRC writes the ticket text.</p>
+						{:else if vType}<p class="small muted vt">Velocity dispute type: <b>{vType}</b></p>{/if}
 					</section>
 
 					<section class="card">

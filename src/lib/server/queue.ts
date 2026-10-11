@@ -18,6 +18,7 @@ export interface PaneRto {
 	payment_mode: string | null;
 	rto_delivered_at: string | null;
 	media_folder_id: string | null;
+	kind?: string | null;
 	customer_name: string | null;
 	disputes?: Rto['disputes'];
 }
@@ -50,7 +51,7 @@ export async function loadQueue() {
 		if (want.has(r.id))
 			pane[r.id] = {
 				id: r.id, order_no: r.order_no, forward_awb: r.forward_awb, carrier_name: r.carrier_name, order_value: r.order_value,
-				payment_mode: r.payment_mode, rto_delivered_at: r.rto_delivered_at, media_folder_id: r.media_folder_id ?? null, customer_name: r.customer_name,
+				payment_mode: r.payment_mode, rto_delivered_at: r.rto_delivered_at, media_folder_id: r.media_folder_id ?? null, customer_name: r.customer_name, kind: r.kind ?? 'rto',
 					disputes: r.disputes ?? null
 			};
 	return { queue, tickets, stuckDays: s.rules.stuckDays, rules: s.rules, claims, media, pane, now };

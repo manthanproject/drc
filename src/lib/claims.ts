@@ -116,6 +116,9 @@ export interface RemarksInput {
 	reason: ReasonKey;
 	items: { title: string; qty: number }[];
 	links: { packing?: string | null; unboxing?: string | null; folder?: string | null };
+	/** customer return (reverse pickup): its return number, e.g. Dropy-5301-ALL-R1 */
+	return_id?: string | null;
+	customer_return?: boolean;
 }
 
 /** The remarks to paste into Velocity → Dispute (editable before copying). Never names the company, only "our warehouse". */
@@ -123,12 +126,14 @@ export function claimRemarks(x: RemarksInput): string {
 	const reason = reasonOf(x.reason)!;
 	const order = /^\d+(-\d+)*$/.test(String(x.order_no ?? '')) ? `#Dropy-${x.order_no}` : String(x.order_no ?? '');
 	const when = x.rto_delivered_at
-		? `was delivered back to our warehouse on ${dateLong(x.rto_delivered_at)}`
+		? `was delivered ${x.customer_return ? 'to' : 'back to'} our warehouse on ${dateLong(x.rto_delivered_at)}`
 		: `was received back at our warehouse on ${dateLong(x.received_at)}`;
 	const list = x.items.map((i) => `${i.title.replace(/\s+/g, ' ').trim()} (qty ${i.qty})`).join('; ');
 	const value = Number(x.order_value);
 	const lines = [
-		`RTO for order ${order} (AWB ${x.forward_awb ?? '—'}) ${when}. On opening it, ${reason.finding}.`,
+		x.customer_return
+			? `Return pickup ${x.return_id ?? ''} for order ${order} (return AWB ${x.forward_awb ?? '—'}) ${when}. On opening it, ${reason.finding}.`.replace('pickup  for', 'pickup for')
+			: `RTO for order ${order} (AWB ${x.forward_awb ?? '—'}) ${when}. On opening it, ${reason.finding}.`,
 		list ? `${x.items.length > 1 ? 'Affected items' : 'Affected item'}: ${list}.` : '',
 		x.links.packing ? `Pre-dispatch packing video with label: ${x.links.packing}` : '',
 		x.links.unboxing ? `Unboxing video showing all sides and the label: ${x.links.unboxing}` : '',

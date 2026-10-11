@@ -217,7 +217,7 @@
 				<div class="card warnline">Already saved as an unknown parcel{r.scanned_at ? ` on ${dateShort(r.scanned_at)}` : ''}. Matching it to an order comes in a later update.</div>
 			{:else}
 				<div class="card picker-card">
-					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} claimHref={!openClaim && r.forward_awb && r.courier && r.kind !== 'customer_return' ? claimHref(r.id, '/scan', { scanned: true, ret: 'from' }) : null} onsaved={saved} />
+					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} claimHref={!openClaim && r.forward_awb && r.courier ? claimHref(r.id, '/scan', { scanned: true, ret: 'from' }) : null} onsaved={saved} />
 				</div>
 			{/if}
 			<button class="linkbtn" onclick={() => { closeCard(); scanner?.focusInput(); }}>Not this parcel? Scan again</button>

@@ -10,14 +10,15 @@ const RTO_COLS =
 const PAGE = 1000; // PostgREST max rows per request
 
 /**
- * Every RTO (paged). Customer returns (kind 'customer_return') are left out unless asked for: they never belong in
- * the RTO lists, MDND or claims. Scan and Ready Stock ask for them too.
+ * Every RTO (paged). Customer returns (kind 'customer_return') are left out unless asked for (Scan, Ready Stock),
+ * except a return in claim: it is listed with the claims. Returns never get MDND.
  */
 export async function allRtos(opts: { returns?: boolean } = {}): Promise<Rto[]> {
 	const out: Rto[] = [];
 	for (let from = 0; ; from += PAGE) {
 		let q = db().from('rtos').select(RTO_COLS);
-		if (!opts.returns) q = q.neq('kind', 'customer_return');
+		// a customer return with a claim (wrong item / damage on the return leg) belongs in the claim lists
+		if (!opts.returns) q = q.or('kind.eq.rto,stage.eq.claim');
 		const { data, error } = await q.order('id').range(from, from + PAGE - 1);
 		if (error) throw new Error(`rtos: ${error.message}`);
 		out.push(...((data ?? []) as unknown as Rto[]));

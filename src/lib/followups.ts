@@ -78,6 +78,7 @@ export interface TextRto {
 	order_value: number | string | null;
 	rto_delivered_at?: string | null;
 	disputes?: Rto['disputes'];
+	kind?: string | null; // 'customer_return': the claim is a Velocity support ticket, not a panel dispute
 }
 
 const inrFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });

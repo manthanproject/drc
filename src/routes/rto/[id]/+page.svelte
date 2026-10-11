@@ -259,7 +259,7 @@
 		{#if err}<p class="err o-err" role="alert">{err}</p>{/if}
 
 		{#if r.stage !== 'unknown_parcel'}
-			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb && !isReturn ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
+			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
 		{/if}
 		{#if canUnreceive}
 			<div class="card o-na na">
