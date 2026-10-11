@@ -2,10 +2,11 @@
 	import { invalidateAll } from '$app/navigation';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
+	import MoneyStatus from '#lib/components/MoneyStatus.svelte';
 	import { inr, dateShort, agoText } from '#lib/dashboard.ts';
 	import { claimReasonLabel } from '#lib/claims.ts';
 	import { rtoHref } from '#lib/scan.ts';
-	import { parsePassbook, parseCnDetails, suggestFor, monthLabel, rupees } from '#lib/money.ts';
+	import { parsePassbook, parseCnDetails, suggestFor, monthLabel, rupees, moneyStatus } from '#lib/money.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -24,6 +25,8 @@
 	let cnMsg = $state('');
 	let cnLines = $state<CnLine[]>([]);
 
+	const rejected = $derived(new Set(data.rejectedRtos));
+	const status = $derived(moneyStatus(data.claims, data.lines, (id: string) => rejected.has(id)));
 	const rtoById = $derived(new Map(data.rtos.map((r) => [r.id, r])));
 	const claimById = $derived(new Map(data.claims.map((c) => [c.id, c])));
 	const orderOf = (rtoId: string) => {
@@ -194,6 +197,7 @@
 			{#if notPaid.length}<span class="pill p-warn">{notPaid.length} approved, not paid · {inr(notPaid.reduce((t, c) => t + Number(c.outstanding), 0))}</span>{/if}
 		</div>
 		<p class="lead muted">Did each claim get paid? Upload Velocity's passbook; DRC finds the claim money in it and links it to the claim.</p>
+		<MoneyStatus s={status} />
 		{#if undo}<div class="undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
 		{#if err}<p class="err" role="alert">{err}</p>{/if}
 

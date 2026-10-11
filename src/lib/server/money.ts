@@ -3,6 +3,7 @@ import { db } from './supabase.ts';
 import { fail, UUID } from './actions.ts';
 import { allRtos } from './rto-data.ts';
 import { categoryOf, monthly, rupees, type LedgerRow, type MonthlyRow } from '#lib/money.ts';
+import { latestDispute } from '#lib/dashboard.ts';
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:30$/;
 const MAX_ROWS = 2000; // per request; the page sends a big file in parts
@@ -126,6 +127,8 @@ export async function loadMoney() {
 		claims: allClaims.map((c) => ({ ...c, outstanding: owed.get(c.id)?.outstanding ?? null, received: owed.get(c.id)?.received_amount ?? 0 })),
 		// every RTO, light: order value matching finds money for parcels with no claim (e.g. "lost" but received)
 		rtos: rtos.map((r) => ({ id: r.id, order_no: r.order_no, order_value: r.order_value, forward_awb: r.forward_awb, stage: r.stage, carrier_name: r.carrier_name, claimed: want.has(r.id) })),
+		// claims whose Velocity panel dispute says rejected (15-min sync): the Money status shows them apart
+		rejectedRtos: rtos.filter((r) => want.has(r.id) && /^(rejected|declined)$/i.test(String(latestDispute(r)?.status ?? ''))).map((r) => r.id),
 		months: monthly((months.data ?? []) as MonthlyRow[]),
 		lastImport: (last.data?.value ?? null) as { at?: string; read?: number; new?: number; from?: string; to?: string } | null,
 		now: Date.now()

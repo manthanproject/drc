@@ -130,3 +130,39 @@ test('credit-note details: wrong file and bad lines', () => {
 	assert.equal(orderNoOf('Dropy 4101-1'), '4101-1');
 	assert.equal(orderNoOf('SHOP-77'), 'SHOP-77');
 });
+
+test('money status: every claim rupee in one bucket, set-aside kept apart', async () => {
+	const { moneyStatus, setAsideParts } = await import('../src/lib/money.ts');
+	const claims = [
+		{ id: 'a', rto_id: 'r1', status: 'closed', claimed_amount: 2179, received: 2179 }, // #2354 paid
+		{ id: 'b', rto_id: 'r2', status: 'closed', claimed_amount: 3847, expected_amount: 2500, received: 2499.99 }, // #1708 paid
+		{ id: 'c', rto_id: 'r3', status: 'raised', channel: 'panel_dispute', claimed_amount: 4097, expected_amount: 2500, received: 0, outstanding: 2500 }, // rejected by Velocity
+		{ id: 'd', rto_id: 'r4', status: 'escalated', channel: 'panel_dispute', claimed_amount: 1158, expected_amount: 1158, received: 0, outstanding: 1158 }, // rejected but escalated → waiting
+		{ id: 'e', rto_id: 'r5', status: 'raised', channel: 'support_ticket', claimed_amount: 1448, received: 0, outstanding: 1448 },
+		{ id: 'f', rto_id: 'r6', status: 'draft', claimed_amount: 889, received: 0 },
+		{ id: 'g', rto_id: 'r7', status: 'approved', claimed_amount: 1000, approved_amount: 900, received: 0, outstanding: 900 },
+		{ id: 'h', rto_id: 'r8', status: 'closed', claimed_amount: 500, received: 0 }
+	];
+	const lines = [
+		{ amount: 4999.99, label: 'received_parcel', label_note: 'Set aside from VSF/FN/1026/246: #3082 ₹2,500 (parcel we got back, Velocity may take it back)', credit_id: 'k1', credit: { allocs: [{ amount: 2499.99 }] } },
+		{ amount: 1728, label: 'received_parcel', label_note: 'Set aside from VSF/FN/1026/096: #1419 ₹1,728 (parcel we got back, Velocity may take it back)', credit_id: 'k2', credit: { allocs: [] } },
+		{ amount: 300, label: 'received_parcel', label_note: 'came back', credit_id: null, credit: null },
+		{ amount: 50, label: 'not_claim', label_note: null, credit_id: null }
+	];
+	const s = moneyStatus(claims, lines, (id) => id === 'r3' || id === 'r4');
+	const by = Object.fromEntries(s.buckets.map((b) => [b.key, [b.n, b.amount]]));
+	assert.deepEqual(by, { recovered: [2, 4678.99], approved: [1, 900], waiting: [2, 2606], rejected: [1, 2500], draft: [1, 889], lost: [1, 500] });
+	assert.equal(s.recovered, 4678.99);
+	assert.equal(s.stillOpen, 6006);
+	assert.equal(s.asked, 11184.99);
+	assert.deepEqual(s.setAside, { n: 3, amount: 4528, orders: ['#3082', '#1419'] });
+	assert.equal(s.labelledNotClaim, 50);
+	assert.deepEqual(setAsideParts('Set aside from X: #3082 ₹2,500, #1419 ₹1,728.50 (…)'), [{ order: '#3082', amount: 2500 }, { order: '#1419', amount: 1728.5 }]);
+});
+
+test('money status: part-paid open claim counts paid part as recovered, rest still open', async () => {
+	const { moneyStatus } = await import('../src/lib/money.ts');
+	const s = moneyStatus([{ id: 'x', rto_id: 'r', status: 'raised', claimed_amount: 3000, expected_amount: 2500, received: 1000, outstanding: 1500 }], [], () => false);
+	assert.equal(s.recovered, 1000);
+	assert.equal(s.stillOpen, 1500);
+});

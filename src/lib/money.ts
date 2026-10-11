@@ -317,3 +317,122 @@ export function parseCnDetails(text: string): CnParsed {
 	const notes = [...by.entries()].map(([cn, rows]) => ({ cn, rows, total: Math.round(rows.reduce((t, x) => t + x.amount, 0) * 100) / 100 }));
 	return { notes, skipped };
 }
+
+// ---------- money status (top of the Money screen): where every claim rupee stands ----------
+
+export interface StatusClaim {
+	id: string;
+	rto_id: string;
+	status: string;
+	channel?: string | null;
+	claimed_amount: number | string;
+	expected_amount?: number | string | null;
+	approved_amount?: number | string | null;
+	received?: number | string | null;
+	outstanding?: number | string | null;
+}
+export interface StatusLine {
+	amount: number | string;
+	label: string | null;
+	label_note: string | null;
+	credit_id: string | null;
+	credit?: { allocs?: { amount: number | string }[] } | null;
+}
+export type BucketKey = 'recovered' | 'approved' | 'waiting' | 'rejected' | 'draft' | 'lost';
+export interface MoneyBucket {
+	key: BucketKey;
+	label: string;
+	hint: string;
+	n: number;
+	amount: number;
+}
+export interface MoneyStatus {
+	buckets: MoneyBucket[];
+	/** money asked for on raised claims (Velocity's cap applied): recovered + approved + waiting + rejected + written off */
+	asked: number;
+	recovered: number;
+	stillOpen: number;
+	setAside: { n: number; amount: number; orders: string[] };
+	labelledNotClaim: number;
+}
+
+const n2 = (v: unknown) => {
+	const x = Number(v);
+	return Number.isFinite(x) ? x : 0;
+};
+
+/** The money a claim is worth now: approved, else expected (Velocity's cap), else what we claimed. */
+export const claimWorth = (c: StatusClaim) => n2(c.approved_amount ?? c.expected_amount ?? c.claimed_amount);
+
+/** "#3082 ₹2,500, #1419 ₹1,728" inside a set-aside note → [{order, amount}]. */
+export function setAsideParts(note: string | null | undefined): { order: string; amount: number }[] {
+	const out: { order: string; amount: number }[] = [];
+	for (const m of String(note ?? '').matchAll(/(#?[\w-]+)\s+₹\s?([\d,]+(?:\.\d+)?)/g)) out.push({ order: m[1], amount: n2(m[2].replace(/,/g, '')) });
+	return out;
+}
+
+/**
+ * Where the claim money stands. `velocityRejected(rtoId)` = Velocity's own dispute status says rejected
+ * (from the 15-min sync); escalated or ticket claims count as waiting, not rejected.
+ */
+export function moneyStatus(claims: StatusClaim[], lines: StatusLine[], velocityRejected: (rtoId: string) => boolean): MoneyStatus {
+	const b: Record<BucketKey, MoneyBucket> = {
+		recovered: { key: 'recovered', label: 'Recovered', hint: 'Credit note received and linked to the claim', n: 0, amount: 0 },
+		approved: { key: 'approved', label: 'Approved, not paid yet', hint: 'Velocity said yes; the credit note is due', n: 0, amount: 0 },
+		waiting: { key: 'waiting', label: 'Waiting on Velocity', hint: 'Raised or escalated, no answer yet', n: 0, amount: 0 },
+		rejected: { key: 'rejected', label: 'Rejected, escalate', hint: 'Velocity rejected it; send a ticket to re-check', n: 0, amount: 0 },
+		draft: { key: 'draft', label: 'Not raised yet', hint: 'Draft claims: raise them before the window closes', n: 0, amount: 0 },
+		lost: { key: 'lost', label: 'Written off', hint: 'Closed with no money', n: 0, amount: 0 }
+	};
+	const add = (k: BucketKey, amount: number) => {
+		b[k].n++;
+		b[k].amount += amount;
+	};
+	for (const c of claims) {
+		const got = n2(c.received);
+		const worth = claimWorth(c);
+		if (c.status === 'draft') add('draft', worth);
+		else if (c.status === 'closed') {
+			if (got > 0) add('recovered', got);
+			else add('lost', worth);
+		} else {
+			if (got > 0) add('recovered', got); // part-paid: the paid part is recovered, the rest still open
+			const left = c.outstanding !== null && c.outstanding !== undefined ? Math.max(n2(c.outstanding), 0) : Math.max(worth - got, 0);
+			if (left <= 0) continue;
+			if (c.status === 'approved') add('approved', left);
+			else if (c.status !== 'escalated' && c.channel !== 'support_ticket' && (c.status === 'rejected' || velocityRejected(c.rto_id))) add('rejected', left);
+			else add('waiting', left);
+		}
+	}
+	const aside = { n: 0, amount: 0, orders: [] as string[] };
+	let notClaim = 0;
+	for (const l of lines) {
+		if (l.label === 'not_claim') notClaim += n2(l.amount);
+		if (l.label !== 'received_parcel') continue;
+		const parts = setAsideParts(l.label_note);
+		if (parts.length) {
+			for (const p of parts) {
+				aside.n++;
+				aside.amount += p.amount;
+				aside.orders.push(p.order);
+			}
+		} else {
+			// labelled by hand without a split: everything on this line not paid to a claim
+			const linked = (l.credit?.allocs ?? []).reduce((t, a) => t + n2(a.amount), 0);
+			aside.n++;
+			aside.amount += Math.max(n2(l.amount) - linked, 0);
+		}
+	}
+	const r2 = (x: number) => Math.round(x * 100) / 100;
+	for (const k of Object.keys(b) as BucketKey[]) b[k].amount = r2(b[k].amount);
+	const recovered = b.recovered.amount;
+	const stillOpen = r2(b.approved.amount + b.waiting.amount + b.rejected.amount);
+	return {
+		buckets: [b.recovered, b.approved, b.waiting, b.rejected, b.draft, b.lost],
+		asked: r2(recovered + stillOpen + b.lost.amount),
+		recovered,
+		stillOpen,
+		setAside: { n: aside.n, amount: r2(aside.amount), orders: aside.orders },
+		labelledNotClaim: r2(notClaim)
+	};
+}
