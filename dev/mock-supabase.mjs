@@ -492,6 +492,11 @@ http.createServer(async (req, res) => {
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}
+		if (fn === 'sync_courier_rtos') {
+			const n = (args.p_rows ?? []).length;
+			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ inserted: n, updated: 0, status_changes: 0 }));
+			return;
+		}
 		if (fn === 'record_reship_checks') {
 			const found = (args.p_rows ?? []).filter((x) => x.reship_order_no).length;
 			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ checked: (args.p_rows ?? []).length, found, new: found }));

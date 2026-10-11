@@ -16,6 +16,17 @@ driveLog.push = (x) => { try { appendFileSync(process.env.FAKE_DRIVE_LOG ?? '/tm
 
 globalThis.fetch = async (input, init = {}) => {
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+	// FAKE_SHIPROCKET=1: a tiny Shiprocket (login, orders, tracking) for local work on the Shiprocket sync
+	if (process.env.FAKE_SHIPROCKET === '1' && url.startsWith('https://apiv2.shiprocket.in/')) {
+		if (url.endsWith('/auth/login')) return json({ token: 'fake-sr-token' });
+		if (url.includes('/orders?')) return json({ data: [
+			{ id: 901, channel_order_id: 'Dropy-5201', status: 'RTO DELIVERED', created_at: '2026-10-01 10:00', customer_name: 'SECRET NAME', customer_phone: '9999999999', total: '1499.00', payment_method: 'cod', shipments: [{ id: 1, awb: 'SR123456789', courier: 'Delhivery Surface', customer_address: 'SECRET' }] },
+			{ id: 902, channel_order_id: 'Dropy-5202', status: 'RTO IN TRANSIT', created_at: '2026-10-03 10:00', total: '899.00', payment_method: 'prepaid', shipments: [{ id: 2, awb: 'SR987654321', courier: 'Xpressbees' }] },
+			{ id: 903, channel_order_id: 'Dropy-5203', status: 'DELIVERED', created_at: '2026-10-04 10:00', total: '599.00', shipments: [{ id: 3, awb: 'SR555', courier: 'Delhivery' }] }
+		], meta: { pagination: { total: 3 } } });
+		if (url.includes('/courier/track/awb/') && !url.endsWith('/SR123456789')) return json({ tracking_data: { shipment_track: [{ awb_code: url.split('/').pop(), current_status: 'RTO IN TRANSIT' }], shipment_track_activities: [{ date: '2026-10-08 09:00:00', activity: 'In transit', location: 'Bhiwandi', 'sr-status-label': 'RTO IN TRANSIT' }] } });
+		if (url.includes('/courier/track/awb/')) return json({ tracking_data: { track_status: 1, shipment_status: 10, shipment_track: [{ awb_code: 'SR123456789', current_status: 'RTO DELIVERED', delivered_date: '2026-10-09 14:02:00', courier_name: 'Delhivery Surface', consignee_name: 'SECRET' }], shipment_track_activities: [{ date: '2026-10-09 14:02:00', activity: 'RTO Delivered', location: 'Vashi', 'sr-status': '10', 'sr-status-label': 'RTO DELIVERED' }] } });
+	}
 	if (url.startsWith('https://script.google.com/')) return json({ ok: true, accessToken: `fake-token-${++tokens}`, account: 'fake@dev' });
 	// FAKE_DRIVE_EXPIRED_TOKEN=1: the first token handed out is already expired (Drive answers 401), like a part-used Apps Script token
 	const auth = String(new Headers(init.headers ?? {}).get('authorization') ?? '');

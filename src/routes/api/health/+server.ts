@@ -49,6 +49,15 @@ export const GET: RequestHandler = async () => {
 	}
 
 	try {
+		const { data } = await db().from('settings').select('value').eq('key', 'shiprocket_last_sync').maybeSingle();
+		const v = data?.value as { ok?: boolean; at?: string; error?: string; fetched?: { unique?: number } } | null | undefined;
+		// Informational: Shiprocket carries few parcels, so a failed run never turns health red
+		out.shiprocketSync = !v ? 'not run yet' : v.ok ? `ok (${v.fetched?.unique ?? 0} RTOs at ${v.at})` : `failed: ${v.error} (at ${v.at})`;
+	} catch (e) {
+		out.shiprocketSync = `failed: ${e instanceof Error ? e.message : String(e)}`;
+	}
+
+	try {
 		const { data } = await db().from('settings').select('value').eq('key', 'reship_last_check').maybeSingle();
 		const v = data?.value as { ok?: boolean; at?: string; error?: string; checked?: number; found?: number } | null | undefined;
 		// Informational only: a failed hourly re-ship check never turns health red

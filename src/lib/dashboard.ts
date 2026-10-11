@@ -151,7 +151,8 @@ export const orderLabel = (r: Rto): string =>
 export function trackingUrl(r: Rto): string | null {
 	if (isSheetOnly(r)) return null;
 	if (r.courier === 'velocity') return `https://www.velocityshipping.in/track/${encodeURIComponent(r.forward_awb!)}`;
-	return null; // Shiprocket not ingested yet
+	if (r.courier === 'shiprocket' && r.forward_awb) return `https://shiprocket.co/tracking/${encodeURIComponent(r.forward_awb)}`;
+	return null;
 }
 
 // ---------- buckets ----------
@@ -258,7 +259,7 @@ export interface ActionItem {
 	nonDropy: boolean;
 }
 
-const carrierOf = (r: Rto) => r.carrier_name || (r.courier === 'velocity' ? 'Velocity' : 'Courier');
+const carrierOf = (r: Rto) => r.carrier_name || (r.courier === 'velocity' ? 'Velocity' : r.courier === 'shiprocket' ? 'Shiprocket' : 'Courier');
 
 function windowFields(deadline: number | null, now: number) {
 	if (deadline === null) return { deadline, daysLeft: null, windowClosed: false };

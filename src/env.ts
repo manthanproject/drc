@@ -21,6 +21,8 @@ export const variables = defineEnvVars({
 	APP_PASSWORD: { description: 'Single shared DRC login password', schema: requiredLive('APP_PASSWORD') },
 	VELOCITY_API_URL: { description: 'Velocity Shipping API base URL', schema: requiredLive('VELOCITY_API_URL') },
 	VELOCITY_API_KEY: { description: 'Velocity API key named DRC (Settings > API Keys, Bearer, up to 365 days)', schema: requiredLive('VELOCITY_API_KEY') },
+	SHIPROCKET_EMAIL: { description: 'Shiprocket API user email (Settings > API, not the login email)', schema: (v: string | undefined) => v ?? '' },
+	SHIPROCKET_PASSWORD: { description: 'Shiprocket API user password', schema: (v: string | undefined) => v ?? '' },
 	CRON_SECRET: { description: 'Shared secret Supabase pg_cron sends to /api/sync/*', schema: requiredLive('CRON_SECRET') },
 	VERCEL_REGION: { description: 'Set by Vercel at runtime', schema: (v: string | undefined) => v ?? '' }
 });
