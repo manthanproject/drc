@@ -55,3 +55,12 @@ test('CSV: header, escaping, formula-safe, Excel BOM', () => {
 	const evil = buildScanLog([ev(9, null, 'unknown_parcel', { code: '=HYPERLINK("x")' }, '2026-10-06T05:00:00Z')], map);
 	assert.ok(scanLogCsv('2026-10-06', evil).includes(`"'=HYPERLINK(""x"")"`));
 });
+
+test('isToday: same IST calendar day only (Clear today\'s scan)', async () => {
+	const { isToday } = await import('../src/lib/scanlog.ts');
+	const now = Date.parse('2026-10-11T12:00:00Z'); // 17:30 IST
+	assert.equal(isToday('2026-10-10T19:00:00Z', now), true); // 00:30 IST on 11 Oct
+	assert.equal(isToday('2026-10-10T18:00:00Z', now), false); // 23:30 IST on 10 Oct
+	assert.equal(isToday(null, now), false);
+	assert.equal(isToday('garbage', now), false);
+});

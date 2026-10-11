@@ -9,10 +9,11 @@
 	import { STATUS, VIA } from '#lib/refunds.ts';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
+	import ClearScan from '#lib/components/ClearScan.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
-	import { istTime } from '#lib/scanlog.ts';
+	import { istTime, isToday } from '#lib/scanlog.ts';
 	import { describe } from '#lib/history.ts';
 	import { velocityRefunded } from '#lib/returns-map.ts';
 	import type { PageProps } from './$types';
@@ -117,6 +118,12 @@
 	// Wrongly marked received (wrong scan, old-sheet import) → back to courier tracking
 	const COURIER_STAGES = new Set(['in_flight', 'delayed', 'lost', 'awaiting_receipt', 'unknown_parcel']);
 	const canUnreceive = $derived(!!r.courier && !COURIER_STAGES.has(r.stage));
+	let cleared = $state('');
+	async function scanCleared(text: string) {
+		undo = null;
+		cleared = text;
+		await invalidateAll();
+	}
 	let naOpen = $state(false);
 	let naWhy = $state('');
 	async function notArrived() {
@@ -261,6 +268,10 @@
 		{#if r.stage !== 'unknown_parcel'}
 			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
 		{/if}
+		{#if cleared}<p class="okline o-err" role="status">{cleared}</p>{/if}
+		{#if isToday(r.scanned_at, Date.now()) && r.stage !== 'unknown_parcel'}
+			<div class="card o-na"><ClearScan rto={r} oncleared={scanCleared} /></div>
+		{/if}
 		{#if canUnreceive}
 			<div class="card o-na na">
 				{#if !naOpen}
@@ -336,6 +347,7 @@
 	.mini { height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 12.5px; cursor: pointer; }
 	.draft textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 10px 12px; font-size: 14px; line-height: 1.45; resize: vertical; }
 	.err { color: var(--bad); font-weight: 600; margin: 0; }
+	.okline { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--ok-soft); color: var(--ok); font-weight: 600; font-size: 13.5px; }
 	.na { display: flex; flex-direction: column; gap: 8px; }
 	.na p { margin: 0; }
 	.na textarea { width: 100%; box-sizing: border-box; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: inherit; padding: 10px; font: inherit; }

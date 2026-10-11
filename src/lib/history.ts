@@ -87,6 +87,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 		}
 		case 'stock_backfill':
 			return { text: `Old Ready Stock: ${p.items ?? ''} item(s) listed as In stock`, who: 'DRC', muted: true };
+		case 'scan_cleared':
+			return { text: `Today's scan cleared, back to ${stageName(p.restored_stage)}${p.undone ? ` (${p.undone} change${p.undone === 1 ? '' : 's'} undone)` : ''}`, who, muted: false };
 		case 'test_reset':
 			return { text: `Test scans cleared, back to ${stageName(p.restored_stage)}`, who: 'Staff (SQL)', muted: true };
 		case 'unknown_parcel':

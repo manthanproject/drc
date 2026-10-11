@@ -356,6 +356,23 @@ function mockNotArrived({ p_rto, p_note }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'not_arrived', from: before.stage, to, before, items_back: back, args: { note: p_note } } });
 	return [200, { event_id: id, from: before.stage, to }];
 }
+function mockClearScan({ p_rto }) {
+	const r = rows.find((x) => x.id === p_rto);
+	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
+	if (!r.scanned_at) return [400, { message: 'DRC_NOT_SCANNED' }];
+	const day = (t) => new Date(Date.parse(t) + 19_800_000).toISOString().slice(0, 10);
+	if (day(r.scanned_at) !== day(new Date().toISOString())) return [400, { message: 'DRC_SCAN_NOT_TODAY' }];
+	if (claims.some((c) => c.rto_id === r.id && c.status !== 'draft')) return [400, { message: 'DRC_CLAIM_NOT_DRAFT' }];
+	const evs = events.filter((e) => e.rto_id === r.id && e.kind === 'stage_change' && e.source === 'user' && !e.payload?.undone && e.received_at >= r.scanned_at);
+	const first = evs.reduce((a, e) => (!a || e.id < a.id ? e : a), null);
+	for (const e of evs) e.payload.undone = true;
+	const before = first?.payload?.before ?? {};
+	Object.assign(r, { stage: before.stage ?? 'awaiting_receipt', scanned_at: null, refund_state: before.refund_state ?? 'na' });
+	for (const i of rtoItems.filter((i) => i.rto_id === r.id)) if (i.ready_stock_state === 'in_stock') i.ready_stock_state = 'na';
+	const id = ++eventId;
+	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'scan_cleared', received_at: new Date().toISOString(), payload: { undone: evs.length, restored_stage: r.stage } });
+	return [200, { cleared: evs.length, to: r.stage, event_id: id }];
+}
 const RCOLS = ['order_no', 'rto_id', 'reason', 'via', 'refund_to', 'amount', 'status', 'done_at', 'done_ref', 'extra', 'deleted_at'];
 const rsnap = (f) => JSON.parse(JSON.stringify(Object.fromEntries(['id', 'source', ...RCOLS].map((k) => [k, f[k] ?? null]))));
 const ono = (v) => String(v ?? '').trim().replace(/^#\s*/, '').replace(/^dropy[-\s]*/i, '');
@@ -495,8 +512,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds', 'clear_today_scan'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, clear_today_scan: mockClearScan, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

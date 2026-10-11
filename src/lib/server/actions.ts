@@ -48,7 +48,12 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_REASON_REQUIRED: [400, 'Type why it has not arrived'],
 	DRC_ALREADY_NOT_ARRIVED: [409, 'This parcel is already marked as not arrived. Refresh the page'],
 	DRC_STOCK_USED: [409, 'An item of this parcel was already re-used from Ready Stock, so it cannot be marked not arrived'],
-	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page']
+	DRC_NOT_AWAITING: [409, 'This parcel is no longer waiting to arrive (scanned or changed). Refresh the page'],
+	DRC_CLAIM_RAISED_SCAN: [409, 'A claim from this scan is already raised with the courier, so the scan cannot be cleared'],
+	DRC_NOT_SCANNED: [409, 'This parcel is not scanned, nothing to clear. Refresh the page'],
+	DRC_SCAN_NOT_TODAY: [409, "Only today's scans can be cleared. For an older scan use Change status or Mark not arrived"],
+	DRC_REFUND_PAID: [409, 'The refund for this parcel is already marked Done in Refunds, so the scan cannot be cleared'],
+	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again']
 };
 
 export function fail(message: string): never {
@@ -82,6 +87,12 @@ export async function runAction(rtoId: string, action: string, args: ActionArgs)
 		const { data, error: e } = await db().rpc('mark_not_arrived', { p_rto: rtoId, p_note: args.note ?? '' });
 		if (e) fail(e.message.includes('DRC_HAS_CLAIM') ? 'DRC_HAS_DAMAGE_CLAIM' : e.message);
 		return data as { event_id: number; from: string; to: string };
+	}
+	if (action === 'clear_scan') {
+		// scanned today by mistake / wrong status → everything since the scan undone, parcel back as before (scan it again)
+		const { data, error: e } = await db().rpc('clear_today_scan', { p_rto: rtoId });
+		if (e) fail(e.message.includes('DRC_CLAIM_NOT_DRAFT') ? 'DRC_CLAIM_RAISED_SCAN' : e.message);
+		return data as { event_id: number; cleared: number; to: string };
 	}
 	if (!(ACTIONS as readonly string[]).includes(action)) error(400, 'Unknown action');
 	const { data, error: e } = await db().rpc('rto_action', { p_rto: rtoId, p_action: action, p_args: args });

@@ -5,6 +5,8 @@
 	import Scanner from '#lib/components/Scanner.svelte';
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
+	import ClearScan from '#lib/components/ClearScan.svelte';
+	import { isToday, istTime } from '#lib/scanlog.ts';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
 	import { rtoHref, claimHref, undoFromUrl } from '#lib/scan.ts';
@@ -189,7 +191,7 @@
 			<div class="card match">
 				<div class="row1"><span class="small muted">Matched {code ? `“${code}”` : ''}</span>{#if r.kind === 'customer_return'}<span class="pill p-ret">Customer return</span>{:else if bucket}<span class="pill p-{bucket.tone}">{bucket.label}</span>{/if}</div>
 				<div class="row2"><span class="ord">{orderLabel(r)}</span><span class="money big">{inr(num(r.order_value))}</span></div>
-				{#if already}<div class="warnline">Already processed: {bucket?.label}. Pick again only to change it.</div>{/if}
+				{#if already}<div class="warnline">Already processed: {bucket?.label}{isToday(r.scanned_at, Date.now()) ? ` (scanned today ${istTime(r.scanned_at)})` : ''}. Pick again only to change it{#if isToday(r.scanned_at, Date.now())}, or clear the scan below{/if}.</div>{/if}
 				<div class="mbody">
 				<dl>
 					<dt>Courier</dt><dd>{r.carrier_name ?? '—'} <span class="mono">{r.forward_awb ?? ''}</span></dd>
@@ -219,6 +221,9 @@
 				<div class="card picker-card">
 					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} claimHref={!openClaim && r.forward_awb && r.courier ? claimHref(r.id, '/scan', { scanned: true, ret: 'from' }) : null} onsaved={saved} />
 				</div>
+			{/if}
+			{#if isToday(r.scanned_at, Date.now()) && r.stage !== 'unknown_parcel'}
+				<div class="card"><ClearScan rto={r} oncleared={(t) => { undo = null; closeCard(); flash = t; invalidate('drc:today'); scanner?.focusInput(); }} /></div>
 			{/if}
 			<button class="linkbtn" onclick={() => { closeCard(); scanner?.focusInput(); }}>Not this parcel? Scan again</button>
 		{/if}

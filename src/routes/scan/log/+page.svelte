@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import { rtoHref } from '#lib/scan.ts';
 	import { inr } from '#lib/dashboard.ts';
@@ -7,6 +7,40 @@
 
 	let { data }: PageProps = $props();
 	const here = $derived(`/scan/log?d=${data.day}`);
+
+	// Clear today's scans (scanned by mistake / wrong status): each parcel goes back as it was before the scan
+	const clearable = $derived.by(() => {
+		if (data.day !== data.today) return [];
+		const seen = new Map<string, { rtoId: string; order: string; time: string; scannedAs: string }>();
+		for (const r of data.rows) if (r.rtoId && !r.undone && !seen.has(r.rtoId)) seen.set(r.rtoId, { rtoId: r.rtoId, order: r.order, time: r.time, scannedAs: r.scannedAs });
+		return [...seen.values()];
+	});
+	let clearing = $state(false);
+	let picked = $state<string[]>([]);
+	let busy = $state(false);
+	let result = $state<{ ok: string[]; bad: string[] } | null>(null);
+	async function clearPicked() {
+		if (busy || !picked.length) return;
+		busy = true;
+		const ok: string[] = [];
+		const bad: string[] = [];
+		for (const id of picked) {
+			const row = clearable.find((c) => c.rtoId === id);
+			try {
+				const res = await fetch(`/api/rto/${id}/action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'clear_scan' }) });
+				const b = await res.json().catch(() => ({}));
+				if (res.ok) ok.push(row?.order ?? id);
+				else bad.push(`${row?.order ?? id}: ${b?.message ?? 'could not clear'}`);
+			} catch {
+				bad.push(`${row?.order ?? id}: no connection`);
+			}
+		}
+		result = { ok, bad };
+		picked = [];
+		clearing = false;
+		busy = false;
+		await invalidateAll();
+	}
 </script>
 
 <div class="app">
@@ -30,6 +64,30 @@
 			{#each data.sum.parts as p (p.label)}<span class="pill p-mute">{p.label} {p.n}</span>{/each}
 			<a class="csv mobile-only" href="/scan/log/csv?d={data.day}" download>Download CSV</a>
 		</div>
+
+		{#if result}
+			<div class="card res" role="status">
+				{#if result.ok.length}<p class="okl">Cleared {result.ok.join(', ')}. Scan {result.ok.length === 1 ? 'it' : 'them'} again on the Scan screen.</p>{/if}
+				{#each result.bad as b}<p class="badl small">{b}</p>{/each}
+			</div>
+		{/if}
+		{#if clearable.length}
+			{#if !clearing}
+				<button class="lnkb" onclick={() => { clearing = true; result = null; }}>Scanned something by mistake? Clear today's scans</button>
+			{:else}
+				<div class="card clr">
+					<b>Clear today's scans</b>
+					<p class="small muted">Tick the parcels to clear. Each goes back exactly as it was before today's scan (status, Ready Stock, refund row and a draft claim are undone), so you can scan it again. Not possible if its claim is already raised or its refund is marked Done.</p>
+					{#each clearable as c (c.rtoId)}
+						<label class="pick"><input type="checkbox" value={c.rtoId} bind:group={picked} /><span class="mono">{c.time}</span><b>{c.order}</b><span class="small muted">{c.scannedAs}</span></label>
+					{/each}
+					<div class="crow">
+						<button class="go warnb" disabled={busy || !picked.length} onclick={clearPicked}>{busy ? 'Clearing…' : `Clear ${picked.length || ''} scan${picked.length === 1 ? '' : 's'}`}</button>
+						<button class="go" disabled={busy} onclick={() => { clearing = false; picked = []; }}>Cancel</button>
+					</div>
+				</div>
+			{/if}
+		{/if}
 
 		{#if data.rows.length === 0}
 			<p class="muted small empty">No parcels were scanned on this day.</p>
@@ -78,6 +136,18 @@
 	.undone { opacity: 0.5; }
 	a.tr:hover { background: color-mix(in srgb, var(--sunk) 55%, transparent); }
 	.note { text-align: center; }
+	.lnkb { align-self: flex-start; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 2px 0; text-decoration: underline; }
+	.clr { display: flex; flex-direction: column; gap: 8px; }
+	.clr p, .res p { margin: 0; }
+	.pick { display: grid; grid-template-columns: 24px 52px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 44px; border-top: 1px solid var(--line); cursor: pointer; }
+	.pick input { width: 20px; height: 20px; }
+	.crow { display: flex; gap: 8px; flex-wrap: wrap; }
+	.go { min-height: 48px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: inherit; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+	.warnb { background: var(--warn, #b7791f); border-color: var(--warn, #b7791f); color: #fff; }
+	.go:disabled { opacity: 0.5; cursor: default; }
+	.res { display: flex; flex-direction: column; gap: 4px; }
+	.okl { color: var(--ok); font-weight: 600; }
+	.badl { color: var(--bad); }
 	.sr { position: absolute; left: -9999px; }
 	@media (min-width: 1024px) {
 		.tr { grid-template-columns: 70px 160px minmax(0, 1.4fr) 150px 150px 100px; grid-template-areas: none; gap: 12px; }

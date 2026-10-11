@@ -15,6 +15,11 @@ export function parseDay(v: string | null, now: number): string {
 	return v > today ? today : v;
 }
 
+/** True when `iso` falls on the same IST day as `now` (Clear today's scan). */
+export function isToday(iso: string | null | undefined, now: number): boolean {
+	return !!iso && !Number.isNaN(Date.parse(iso)) && istDate(Date.parse(iso)) === istDate(now);
+}
+
 /** UTC instants for the start of that IST day and the next one. */
 export function dayRange(day: string): { from: string; to: string } {
 	const start = Date.parse(`${day}T00:00:00+05:30`);
