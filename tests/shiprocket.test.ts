@@ -105,3 +105,10 @@ test('items with no price are not gifts; tracking keyed by AWB is read', () => {
 test('Shiprocket rows open the Shiprocket tracking page', () => {
 	assert.equal(trackingUrl({ courier: 'shiprocket', forward_awb: 'SR1', legacy_source: null } as unknown as Rto), 'https://shiprocket.co/tracking/SR1');
 });
+
+test('Home warning names the login problem in plain words', async () => {
+	const { shiprocketWarning } = await import('../src/lib/dashboard.ts');
+	assert.match(shiprocketWarning('Shiprocket login failed (HTTP 403): User blocked due to too many failed login attempts.'), /blocked/);
+	assert.match(shiprocketWarning('Shiprocket login failed (HTTP 403): Invalid email and password combination'), /SHIPROCKET_PASSWORD/);
+	assert.match(shiprocketWarning('Shiprocket /orders page 1: HTTP 502'), /retries/);
+});

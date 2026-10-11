@@ -20,7 +20,11 @@ async function token(): Promise<string> {
 		signal: AbortSignal.timeout(15_000)
 	});
 	const b = await r.json().catch(() => ({}));
-	if (!r.ok || !b?.token) throw new ShiprocketAuthError(`Shiprocket login failed (HTTP ${r.status})`);
+	if (!r.ok || !b?.token) {
+		// Shiprocket's reason ("Invalid email and password combination", "User blocked ..."); never contains the password
+		const why = typeof b?.message === 'string' ? `: ${b.message.replace(/\s+/g, ' ').slice(0, 160)}` : '';
+		throw new ShiprocketAuthError(`Shiprocket login failed (HTTP ${r.status})${why}`);
+	}
 	cached = { token: String(b.token), at: Date.now() };
 	return cached.token;
 }

@@ -18,6 +18,7 @@ globalThis.fetch = async (input, init = {}) => {
 	const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 	// FAKE_SHIPROCKET=1: a tiny Shiprocket (login, orders, tracking) for local work on the Shiprocket sync
 	if (process.env.FAKE_SHIPROCKET === '1' && url.startsWith('https://apiv2.shiprocket.in/')) {
+		if (url.endsWith('/auth/login') && process.env.FAKE_SHIPROCKET_LOGIN === 'blocked') return new Response(JSON.stringify({ message: 'User blocked due to too many failed login attempts.', status_code: 403 }), { status: 403, headers: { 'content-type': 'application/json' } });
 		if (url.endsWith('/auth/login')) return json({ token: 'fake-sr-token' });
 		if (url.includes('/orders?')) return json({ data: [
 			{ id: 901, channel_order_id: 'Dropy-5201', status: 'RTO DELIVERED', created_at: '2026-10-01 10:00', customer_name: 'SECRET NAME', customer_phone: '9999999999', total: '1499.00', payment_method: 'cod', shipments: [{ id: 1, awb: 'SR123456789', courier: 'Delhivery Surface', customer_address: 'SECRET' }] },

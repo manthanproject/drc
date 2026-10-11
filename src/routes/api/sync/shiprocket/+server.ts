@@ -72,6 +72,17 @@ async function saveRun(value: Record<string, unknown>) {
 	await db().from('settings').upsert({ key: 'shiprocket_last_sync', value, note: 'Written by /api/sync/shiprocket' });
 }
 
+const PAUSE_AFTER_REJECT_MS = 6 * 3_600_000;
+
+/** Scheduled runs only: after Shiprocket rejected the login, wait 6 h (repeated wrong logins get the API user blocked). */
+async function pausedAfterReject(): Promise<string | null> {
+	const { data } = await db().from('settings').select('value').eq('key', 'shiprocket_last_sync').maybeSingle();
+	const v = data?.value as { ok?: boolean; keyRejected?: boolean; at?: string } | undefined;
+	if (!v || v.ok || !v.keyRejected || !v.at) return null;
+	const until = Date.parse(v.at) + PAUSE_AFTER_REJECT_MS;
+	return Date.now() < until ? new Date(until).toISOString() : null;
+}
+
 async function run(withFields: boolean) {
 	const started = Date.now();
 	try {
@@ -148,10 +159,14 @@ async function run(withFields: boolean) {
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	if (!(await validSession(cookies.get(SESSION_COOKIE)))) requireCronOrPassword(request);
+	if (request.headers.get('x-cron-secret') !== null) {
+		const until = await pausedAfterReject();
+		if (until) return json({ ok: false, paused: true, until, reason: 'Shiprocket rejected the last login; not retrying until then' });
+	}
 	return run(false);
 };
 
-/** Logged in: run it now and also list the field names Shiprocket sent (no customer details). */
+/** Logged in: run it now (no pause: a person asked) and also list the field names Shiprocket sent (no customer details). */
 export const GET: RequestHandler = async ({ request, cookies }) => {
 	await requireUser(request, cookies.get(SESSION_COOKIE));
 	return run(true);

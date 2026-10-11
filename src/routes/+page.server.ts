@@ -1,7 +1,7 @@
 import { loadSnapshot } from '#lib/server/rto-data.ts';
 import { scannedToday } from '#lib/server/today.ts';
 import { db } from '#lib/server/supabase.ts';
-import { buildDashboard, syncState } from '#lib/dashboard.ts';
+import { buildDashboard, syncState, shiprocketWarning } from '#lib/dashboard.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ setHeaders }) => {
@@ -20,5 +20,7 @@ export const load: PageServerLoad = async ({ setHeaders }) => {
 		waiting: open.filter((r) => r.status === 'waiting').length,
 		first: open.filter((r) => r.status === 'to_refund').slice(0, 2).map((r) => r.order_no)
 	};
-	return { d, rules: s.rules, sync: syncState(s.lastSync, s.now), today, refunds };
+	const sr = s.srSync;
+	const srWarn = sr && sr.ok === false && sr.error ? shiprocketWarning(sr.error) : null;
+	return { d, rules: s.rules, sync: syncState(s.lastSync, s.now), today, refunds, srWarn };
 };

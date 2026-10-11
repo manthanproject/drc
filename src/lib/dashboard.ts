@@ -549,6 +549,13 @@ export function syncState(v: { ok?: boolean; at?: string; error?: string } | nul
 	return { text: agoText(v.at, now), ok: fresh };
 }
 
+/** Home warning when the Shiprocket sync failed: plain words, the login case first (it needs a person). */
+export function shiprocketWarning(error: string): string {
+	if (/blocked/i.test(error)) return 'Shiprocket sync stopped: the DRC API user is blocked after wrong logins. Wait, then check SHIPROCKET_PASSWORD.';
+	if (/login failed|not set/i.test(error)) return 'Shiprocket sync stopped: login rejected. Check SHIPROCKET_EMAIL / SHIPROCKET_PASSWORD in Vercel.';
+	return 'Shiprocket sync failed on its last run. It retries on its own; tell Claude if this stays.';
+}
+
 /** Payment line for cards: partial orders show the split (paid online + COD), from Velocity's cod_amount. */
 export function paymentBreakdown(r: { payment_mode: string | null; order_value: number | string | null; amount_collected?: number | string | null }): {
 	label: string;
