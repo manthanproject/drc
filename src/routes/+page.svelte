@@ -56,6 +56,7 @@
 			</div>
 			<a class="open" href="/rtos?f=action">{d.action.length ? 'Open list' : 'All RTOs'}</a>
 			{#if data.srWarn}<p class="srwarn" role="alert">{data.srWarn}</p>{/if}
+			{#if data.money}<a class="moneyrem" href="/money"><span>{data.money.text}</span><b>{data.money.action} →</b></a>{/if}
 		</section>
 
 		<div class="tiles">
@@ -146,6 +147,8 @@
 	.hl { font-size: 14.5px; font-weight: 600; color: #4b5059; margin-top: 4px; }
 	.open { grid-area: open; justify-self: end; padding: 14px 20px; border-radius: 999px; background: var(--acc); color: var(--acc-ink); font-weight: 700; }
 	.srwarn { grid-column: 1 / -1; margin: 0; padding: 10px 14px; border-radius: 14px; background: #fdecea; color: #a1281c; font-size: 13px; font-weight: 600; }
+	.moneyrem { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 10px 14px; border-radius: 14px; background: #fff5e0; color: #7a5300; font-size: 13px; font-weight: 600; }
+	.moneyrem b { color: var(--acc); }
 	.hbar { grid-area: bar; display: flex; flex-direction: column; gap: 8px; }
 	.segs { display: flex; gap: 6px; }
 	.seg { height: 10px; border-radius: 99px; min-width: 10px; background: #dfe2e7; }

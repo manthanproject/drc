@@ -436,3 +436,29 @@ export function moneyStatus(claims: StatusClaim[], lines: StatusLine[], velocity
 		labelledNotClaim: r2(notClaim)
 	};
 }
+
+// ---------- Home reminder: when to upload the Velocity passbook / credit-note details ----------
+
+export interface MoneyReminder {
+	text: string;
+	action: string;
+}
+
+/**
+ * Velocity's API has no claim money (checked 11 Oct: Finance API shows only shipping / COD / RTO charges per AWB),
+ * so credit notes reach DRC only through the passbook and credit-note uploads. Remind only when there is a reason:
+ * 1. claim money already in the passbook but not matched → upload the credit-note details
+ * 2. a claim approved but no money seen → upload the latest passbook
+ * 3. no passbook upload for 7+ days → upload this week's
+ */
+export function moneyReminder(p: { lastImportAt: string | null | undefined; approvedUnpaid: number; toMatch: number; toMatchAmount?: number }, now: number): MoneyReminder | null {
+	if (p.toMatch > 0)
+		return { text: `${p.toMatch} claim credit${p.toMatch > 1 ? 's' : ''}${p.toMatchAmount ? ` (${inr(p.toMatchAmount)})` : ''} in the passbook not matched to a claim yet`, action: 'Upload the credit-note details' };
+	if (p.approvedUnpaid > 0)
+		return { text: `${p.approvedUnpaid} claim${p.approvedUnpaid > 1 ? 's' : ''} approved by Velocity, money not seen yet`, action: 'Upload the latest passbook' };
+	const at = p.lastImportAt ? Date.parse(p.lastImportAt) : NaN;
+	if (Number.isNaN(at)) return { text: 'Velocity passbook never uploaded', action: 'Upload the passbook' };
+	const days = Math.floor((now - at) / 86_400_000);
+	if (days >= 7) return { text: `Velocity passbook last uploaded ${days} days ago`, action: "Upload this week's passbook" };
+	return null;
+}

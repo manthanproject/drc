@@ -32,11 +32,11 @@ async function allClaims(): Promise<Claim[]> {
 
 export type LastSync = { ok?: boolean; at?: string; error?: string } | null;
 
-export async function settings(): Promise<{ rules: Rules; lastSync: LastSync; srSync: LastSync }> {
+export async function settings(): Promise<{ rules: Rules; lastSync: LastSync; srSync: LastSync; ledgerImportAt: string | null }> {
 	const { data, error } = await db()
 		.from('settings')
 		.select('key, value')
-		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'stuck_days', 'follow_up_hours', 'mdnd_hours_dtdc', 'velocity_last_sync', 'shiprocket_last_sync']);
+		.in('key', ['mdnd_hours', 'delayed_days', 'dispute_window_days', 'stuck_days', 'follow_up_hours', 'mdnd_hours_dtdc', 'velocity_last_sync', 'shiprocket_last_sync', 'ledger_last_import']);
 	if (error) throw new Error(`settings: ${error.message}`);
 	const get = (k: string) => data?.find((s) => s.key === k)?.value;
 	const pos = (v: unknown, d: number) => (num(v) > 0 ? num(v) : d);
@@ -50,12 +50,13 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync; sr
 			mdndHoursDtdc: pos(get('mdnd_hours_dtdc'), DEFAULT_RULES.mdndHoursDtdc)
 		},
 		lastSync: (get('velocity_last_sync') as LastSync) ?? null,
-		srSync: (get('shiprocket_last_sync') as LastSync) ?? null
+		srSync: (get('shiprocket_last_sync') as LastSync) ?? null,
+		ledgerImportAt: ((get('ledger_last_import') as { at?: string } | undefined)?.at as string | undefined) ?? null
 	};
 }
 
 /** Read-only snapshot for Dashboard and All RTOs. No writes anywhere. */
 export async function loadSnapshot() {
 	const [rtos, claims, s] = await Promise.all([allRtos(), allClaims(), settings()]);
-	return { rtos, claims, rules: s.rules, lastSync: s.lastSync, srSync: s.srSync, now: Date.now() };
+	return { rtos, claims, rules: s.rules, lastSync: s.lastSync, srSync: s.srSync, ledgerImportAt: s.ledgerImportAt, now: Date.now() };
 }

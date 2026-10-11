@@ -6,7 +6,7 @@ export class VelocityKeyError extends Error {}
 const base = () => (VELOCITY_API_URL || '').replace(/\/+$/, '');
 
 /** Read-only endpoints DRC is allowed to call. Booking, cancel, NDR actions are deliberately absent. */
-const READ_ONLY = new Set(['/shipments', '/order-tracking', '/return-shipments', '/shipping-charges']);
+const READ_ONLY = new Set(['/shipments', '/order-tracking', '/return-shipments']);
 
 export async function velocityPost(
 	path: string,

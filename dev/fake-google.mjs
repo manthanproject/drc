@@ -28,14 +28,6 @@ globalThis.fetch = async (input, init = {}) => {
 		if (url.includes('/courier/track/awb/') && !url.endsWith('/SR123456789')) return json({ tracking_data: { shipment_track: [{ awb_code: url.split('/').pop(), current_status: 'RTO IN TRANSIT' }], shipment_track_activities: [{ date: '2026-10-08 09:00:00', activity: 'In transit', location: 'Bhiwandi', 'sr-status-label': 'RTO IN TRANSIT' }] } });
 		if (url.includes('/courier/track/awb/')) return json({ tracking_data: { track_status: 1, shipment_status: 10, shipment_track: [{ awb_code: 'SR123456789', current_status: 'RTO DELIVERED', delivered_date: '2026-10-09 14:02:00', courier_name: 'Delhivery Surface', consignee_name: 'SECRET' }], shipment_track_activities: [{ date: '2026-10-09 14:02:00', activity: 'RTO Delivered', location: 'Vashi', 'sr-status': '10', 'sr-status-label': 'RTO DELIVERED' }] } });
 	}
-	// FAKE_VELOCITY_CHARGES=1: Velocity Finance API shipping-charges (one credit on the first AWB, debits on the rest)
-	if (process.env.FAKE_VELOCITY_CHARGES === '1' && url.endsWith('/shipping-charges')) {
-		const awbs = JSON.parse(String(init.body ?? '{}')).awbs ?? [];
-		return json({ data: awbs.map((a, i) => i === awbs.length - 1 ? { tracking_number: a, error: `AWB ${a} does not exist in your account.` } : { tracking_number: a, charges: [
-			{ event_type: 'shipment_debit', transaction_type: 'debit', amount_without_gst: 84.75, amount_with_gst: 100 },
-			...(i === 0 ? [{ event_type: 'lost_shipment_credit', transaction_type: 'credit', amount_without_gst: 2117.8, amount_with_gst: 2500 }] : [])
-		] }) });
-	}
 	if (url.startsWith('https://script.google.com/')) return json({ ok: true, accessToken: `fake-token-${++tokens}`, account: 'fake@dev' });
 	// FAKE_DRIVE_EXPIRED_TOKEN=1: the first token handed out is already expired (Drive answers 401), like a part-used Apps Script token
 	const auth = String(new Headers(init.headers ?? {}).get('authorization') ?? '');

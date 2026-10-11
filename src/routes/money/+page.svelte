@@ -44,6 +44,8 @@
 	const sum = (xs: { amount: number | string }[]) => xs.reduce((t, x) => t + Number(x.amount), 0);
 	const LABEL: Record<string, string> = { received_parcel: 'Parcel we got back', not_claim: 'Not a claim' };
 	const dayIst = (iso: string) => dateShort(iso);
+	// newest credit note already in DRC, so you know which notes to download
+	const lastCn = $derived(data.lines.find((l) => l.credit?.external_ref)?.credit?.external_ref ?? null);
 
 	async function upload(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
@@ -208,10 +210,12 @@
 					{data.lastImport?.at ? `Last upload ${agoText(data.lastImport.at, data.now)}${data.lastImport.from ? ` · covers ${dayIst(data.lastImport.from)} – ${dayIst(data.lastImport.to ?? '')}` : ''}` : 'Not uploaded yet'}
 				</span>
 			</div>
+			<p class="small when">When: once a week, or when Home asks for it.</p>
 			<ol class="small steps">
-				<li>Velocity → Payments → <b>Passbook</b>, pick the dates (overlap with the last upload is fine)</li>
-				<li>Tap the <b>download</b> icon at the right of the filters</li>
-				<li>Choose that file here</li>
+				<li>Open the Velocity panel → <b>Payments</b> (left menu) → <b>Passbook</b> tab</li>
+				<li>Date filter: from <b>{data.lastImport?.to ? dayIst(data.lastImport.to) : '1 Aug'}</b> to <b>today</b> (overlap with the last upload is fine; nothing counts twice)</li>
+				<li>Click the <b>download</b> icon at the right of the filters: a <b>.csv</b> file saves to your Downloads</li>
+				<li>Click <b>Choose passbook file</b> below and pick that file</li>
 			</ol>
 			<label class="file" class:busy>
 				<input type="file" accept=".csv,text/csv" onchange={upload} disabled={busy} />
@@ -225,10 +229,12 @@
 				<b>Upload credit-note details</b>
 				<span class="small muted">Tells DRC which orders each credit note pays</span>
 			</div>
+			<p class="small when">When: after a passbook upload shows "claim credit found", or when Home asks for it.{#if lastCn} Last note in DRC: <b>{lastCn}</b>.{/if}</p>
 			<ol class="small steps">
-				<li>Upload the passbook first (the note's money must be in DRC)</li>
-				<li>Velocity → Payments → <b>Credit Note</b> → tap the <b>second icon</b> on a note to download its details</li>
-				<li>Choose the file(s) here; several at once is fine</li>
+				<li>Upload the passbook first (above): the note's money must be in DRC</li>
+				<li>Velocity panel → <b>Payments</b> → <b>Credit Note</b> tab</li>
+				<li>For each note newer than the last one in DRC, click the <b>second icon</b> on its row: its details <b>.csv</b> saves</li>
+				<li>Click <b>Choose credit-note detail file(s)</b> below and pick them (several at once is fine)</li>
 			</ol>
 			<label class="file" class:busy={cnBusy}>
 				<input type="file" accept=".csv,text/csv" multiple onchange={uploadCn} disabled={busy || cnBusy} />
@@ -363,6 +369,7 @@
 <BottomNav active="claims" />
 
 <style>
+	.when { margin: 2px 0 0; color: #7a5300; }
 	.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
 	.head h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
 	.topbar .back { font-size: 26px; color: inherit; text-decoration: none; padding: 0 6px; }

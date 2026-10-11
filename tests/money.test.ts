@@ -166,3 +166,15 @@ test('money status: part-paid open claim counts paid part as recovered, rest sti
 	assert.equal(s.recovered, 1000);
 	assert.equal(s.stillOpen, 1500);
 });
+
+test('Home money reminder: only when there is a reason, most useful first', async () => {
+	const { moneyReminder } = await import('../src/lib/money.ts');
+	const now = Date.parse('2026-10-11T12:00:00+05:30');
+	const fresh = '2026-10-09T12:00:00+05:30';
+	assert.equal(moneyReminder({ lastImportAt: fresh, approvedUnpaid: 0, toMatch: 0 }, now), null);
+	assert.match(moneyReminder({ lastImportAt: fresh, approvedUnpaid: 2, toMatch: 1, toMatchAmount: 2500 }, now)!.text, /1 claim credit \(₹2,500\) in the passbook/);
+	assert.equal(moneyReminder({ lastImportAt: fresh, approvedUnpaid: 2, toMatch: 1 }, now)!.action, 'Upload the credit-note details');
+	assert.equal(moneyReminder({ lastImportAt: fresh, approvedUnpaid: 2, toMatch: 0 }, now)!.action, 'Upload the latest passbook');
+	assert.match(moneyReminder({ lastImportAt: '2026-10-01T12:00:00+05:30', approvedUnpaid: 0, toMatch: 0 }, now)!.text, /10 days ago/);
+	assert.equal(moneyReminder({ lastImportAt: null, approvedUnpaid: 0, toMatch: 0 }, now)!.text, 'Velocity passbook never uploaded');
+});
