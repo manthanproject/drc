@@ -110,6 +110,7 @@
 				<a href="/rtos?f=inspect"><svg viewBox="0 0 24 24" aria-hidden="true" class="blue"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>To inspect<b>{d.inspect.n}</b></a>
 				<a href="/rtos?f=delayed"><svg viewBox="0 0 24 24" aria-hidden="true" class="amber"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>Delayed<b>{d.delayed.n}</b></a>
 				<a href="/money"><svg viewBox="0 0 24 24" aria-hidden="true" class="green"><rect x="3" y="6" width="18" height="13" rx="3" /><path d="M3 10h18" /></svg>Money<b>{d.creditDue.n}</b></a>
+				<a href="/returns" class="wide"><svg viewBox="0 0 24 24" aria-hidden="true" class="purple"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg>Customer returns<span class="rsub">{data.returns.arrived ? `${data.returns.arrived} arrived` : `${data.returns.coming} coming`}</span><b>{data.returns.arrived + data.returns.coming}</b></a>
 			</div>
 
 			<div class="card desk-only">
@@ -187,6 +188,9 @@
 	.pills svg.blue { stroke: #2f6fc4; }
 	.pills svg.amber { stroke: #b07a0c; }
 	.pills svg.green { stroke: var(--ok); }
+	.pills svg.purple { stroke: #4b2f99; }
+	.pills a.wide { grid-column: 1 / -1; }
+	.pills .rsub { font-size: 12.5px; font-weight: 600; color: var(--muted); }
 	.side { display: flex; flex-direction: column; gap: 12px; }
 	.side .sec { margin: 6px 2px 0; }
 	.parked { display: flex; flex-wrap: wrap; gap: 8px; }

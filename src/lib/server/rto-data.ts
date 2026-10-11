@@ -5,14 +5,20 @@ const RTO_COLS =
 	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, amount_collected, ' +
 	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, last_event_text, last_event_location, legacy_source, ' +
 	'reship_order_no, reship_awb, reship_created_at, reship_courier_status, reship_state, scanned_at, media_folder_id, refund_state, ' +
-	'disputes:courier_raw->shipment_disputes';
+	'kind, return_id, return_reason, disputes:courier_raw->shipment_disputes';
 
 const PAGE = 1000; // PostgREST max rows per request
 
-export async function allRtos(): Promise<Rto[]> {
+/**
+ * Every RTO (paged). Customer returns (kind 'customer_return') are left out unless asked for: they never belong in
+ * the RTO lists, MDND or claims. Scan and Ready Stock ask for them too.
+ */
+export async function allRtos(opts: { returns?: boolean } = {}): Promise<Rto[]> {
 	const out: Rto[] = [];
 	for (let from = 0; ; from += PAGE) {
-		const { data, error } = await db().from('rtos').select(RTO_COLS).order('id').range(from, from + PAGE - 1);
+		let q = db().from('rtos').select(RTO_COLS);
+		if (!opts.returns) q = q.neq('kind', 'customer_return');
+		const { data, error } = await q.order('id').range(from, from + PAGE - 1);
 		if (error) throw new Error(`rtos: ${error.message}`);
 		out.push(...((data ?? []) as unknown as Rto[]));
 		if (!data || data.length < PAGE) return out;

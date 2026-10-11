@@ -9,6 +9,7 @@ const COLS =
 	'customer_name, customer_phone10, stage, courier_status, rto_delivered_at, last_movement_at, last_event_at, last_event_text, ' +
 	'last_event_location, legacy_source, scanned_at, callback_attempts, callback_outcome, reship_date, refund_state, notes, ' +
 	'reship_order_no, reship_awb, reship_created_at, reship_courier_status, reship_state, media_folder_id, media_state, ' +
+	'kind, return_id, return_reason, vref:courier_raw->>refund_status, ' +
 	'ship:courier_raw->shipping_address, disputes:courier_raw->shipment_disputes';
 
 export interface RtoFull extends Rto {
@@ -24,6 +25,7 @@ export interface RtoFull extends Rto {
 	ship?: { full_address?: string | null; city?: string | null; state?: string | null; zip?: string | null } | null;
 	media_folder_id: string | null;
 	media_state: string;
+	vref?: string | null; // customer returns: Velocity's own refund status (we never refund through Velocity)
 }
 
 export interface Item {

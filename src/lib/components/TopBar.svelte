@@ -12,7 +12,7 @@
 	const active = $derived.by(() => {
 		let p = page.url.pathname;
 		if (p.startsWith('/rto/')) p = safePath(page.url.searchParams.get('from'))?.split('?')[0] ?? '/rtos';
-		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : p.startsWith('/money') ? 'money' : p.startsWith('/refunds') ? 'refunds' : p.startsWith('/stock') ? 'stock' : 'all';
+		return p === '/' ? 'home' : p.startsWith('/scan') ? 'scan' : p.startsWith('/claims') ? 'claims' : p.startsWith('/money') ? 'money' : p.startsWith('/refunds') ? 'refunds' : p.startsWith('/stock') ? 'stock' : p.startsWith('/returns') ? 'returns' : 'all';
 	});
 
 	function find(e: SubmitEvent) {
@@ -38,6 +38,7 @@
 			<a href="/claims" class:on={active === 'claims'} aria-current={active === 'claims' ? 'page' : undefined}>Claims</a>
 			<a href="/money" class:on={active === 'money'} aria-current={active === 'money' ? 'page' : undefined}>Money</a>
 			<a href="/refunds" class:on={active === 'refunds'} aria-current={active === 'refunds' ? 'page' : undefined}>Refunds</a>
+			<a href="/returns" class:on={active === 'returns'} aria-current={active === 'returns' ? 'page' : undefined}>Customer returns</a>
 			<a href="/rtos" class:on={active === 'all'} aria-current={active === 'all' ? 'page' : undefined}>All RTOs</a>
 		</nav>
 		<span class="grow"></span>
@@ -57,15 +58,15 @@
 
 <style>
 	.tb { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
-	.in { max-width: 1360px; margin: 0 auto; padding: 0 28px; min-height: 66px; display: flex; align-items: center; gap: 24px; }
+	.in { max-width: 1360px; margin: 0 auto; padding: 0 28px; min-height: 66px; display: flex; align-items: center; gap: 20px; }
 	.brand { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
 	.brand b { font-size: 17px; }
-	nav { display: flex; gap: 4px; }
+	nav { display: flex; gap: 2px; white-space: nowrap; }
 	nav a { padding: 8px 14px; border-radius: 999px; font-size: 14.5px; font-weight: 600; color: var(--muted); }
 	nav a.on { color: var(--ink); background: var(--sunk); font-weight: 700; }
 	nav a:hover { color: var(--ink); }
 	.grow { flex: 1; }
-	.find { display: flex; align-items: center; gap: 8px; height: 42px; width: 300px; border-radius: 999px; border: 1px solid transparent; background: var(--sunk); padding: 0 16px; color: var(--muted); }
+	.find { display: flex; align-items: center; gap: 8px; height: 42px; width: clamp(170px, 20vw, 300px); border-radius: 999px; border: 1px solid transparent; background: var(--sunk); padding: 0 16px; color: var(--muted); }
 	.find input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 13.5px; color: var(--ink); }
 	.find:focus-within { border-color: var(--acc); }
 	.sync { background: none; border: 0; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
@@ -74,4 +75,7 @@
 	.scan { height: 42px; padding: 0 20px; border-radius: 999px; background: var(--acc); color: var(--acc-ink); display: inline-flex; align-items: center; font-weight: 700; white-space: nowrap; }
 	.scan.on { outline: 3px solid var(--acc-soft); }
 	.sr { position: absolute; left: -9999px; }
+	@media (max-width: 1365px) { .in { gap: 12px; padding: 0 18px; } nav a { padding: 8px 10px; } .find { width: 190px; } }
+	/* small laptops / tablets: the menu and sync status need the room; search stays on All RTOs and Scan */
+	@media (max-width: 1279px) { .find { display: none; } nav a { font-size: 14px; padding: 8px 9px; } }
 </style>

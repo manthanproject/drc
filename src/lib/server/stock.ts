@@ -18,7 +18,7 @@ export async function stockItems(): Promise<StockItem[]> {
 }
 
 export async function loadStock() {
-	const [items, rtos] = await Promise.all([stockItems(), allRtos()]);
+	const [items, rtos] = await Promise.all([stockItems(), allRtos({ returns: true })]);
 	const stock = buildStock(items, rtos as StockRto[]);
 	return { stock, now: Date.now() };
 }

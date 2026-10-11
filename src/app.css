@@ -44,6 +44,7 @@ a { color: inherit; text-decoration: none; }
 .p-bad { background: var(--bad-soft); color: var(--bad); }
 .p-acc { background: var(--acc-soft); color: var(--acc); }
 .p-mute { background: var(--sunk); color: var(--muted); }
+.p-ret { background: #ece6fb; color: #4b2f99; }
 .p-info { background: #e3eefa; color: #1f5f99; }
 
 .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 50px;

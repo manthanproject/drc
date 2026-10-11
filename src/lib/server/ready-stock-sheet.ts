@@ -12,7 +12,7 @@ import { sheetRows, SHEET_TAB, type StockRto } from '#lib/stock.ts';
 export async function syncReadyStockSheet(now = Date.now()) {
 	if (!RETURN_ORDERS_ID) throw new Error('RETURN_ORDERS_ID missing');
 	const api = sheetsWriter().spreadsheets;
-	const [items, rtos] = await Promise.all([stockItems(), allRtos()]);
+	const [items, rtos] = await Promise.all([stockItems(), allRtos({ returns: true })]);
 	const rows = sheetRows(items, rtos as StockRto[], now);
 
 	const meta = await api.get({ spreadsheetId: RETURN_ORDERS_ID, fields: 'sheets.properties(sheetId,title)' });

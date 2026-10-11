@@ -14,7 +14,7 @@
 
 	let { data }: PageProps = $props();
 
-	type Slim = { id: string; label: string; value: string; carrier: string | null; awb: string | null; customer: string | null; stage: string; tone: string; sheetOnly: boolean; nonDropy: boolean };
+	type Slim = { id: string; label: string; value: string; carrier: string | null; awb: string | null; customer: string | null; stage: string; tone: string; sheetOnly: boolean; nonDropy: boolean; customerReturn?: boolean };
 	let scanner = $state<ReturnType<typeof Scanner>>();
 	let code = $state('');
 	let finding = $state(false);
@@ -168,7 +168,7 @@
 			<div class="picklist">
 				{#each matches as m (m.id)}
 					<button class="pick card" onclick={() => open(m.id)}>
-						<span class="pl"><b>{m.label}</b>{#if m.nonDropy}<span class="pill p-mute">non-Dropy</span>{/if}<small>{m.customer ?? '—'} · {m.carrier ?? 'sheet only'} {m.awb ?? ''}</small></span>
+						<span class="pl"><b>{m.label}</b>{#if m.customerReturn}<span class="pill p-ret">Customer return</span>{/if}{#if m.nonDropy}<span class="pill p-mute">non-Dropy</span>{/if}<small>{m.customer ?? '—'} · {m.carrier ?? 'sheet only'} {m.awb ?? ''}</small></span>
 						<span class="pr"><b class="money">{m.value}</b><span class="pill p-{m.tone}">{m.stage}</span></span>
 					</button>
 				{/each}
@@ -187,7 +187,7 @@
 
 		{#if r}
 			<div class="card match">
-				<div class="row1"><span class="small muted">Matched {code ? `“${code}”` : ''}</span>{#if bucket}<span class="pill p-{bucket.tone}">{bucket.label}</span>{/if}</div>
+				<div class="row1"><span class="small muted">Matched {code ? `“${code}”` : ''}</span>{#if r.kind === 'customer_return'}<span class="pill p-ret">Customer return</span>{:else if bucket}<span class="pill p-{bucket.tone}">{bucket.label}</span>{/if}</div>
 				<div class="row2"><span class="ord">{orderLabel(r)}</span><span class="money big">{inr(num(r.order_value))}</span></div>
 				{#if already}<div class="warnline">Already processed: {bucket?.label}. Pick again only to change it.</div>{/if}
 				<div class="mbody">
@@ -195,7 +195,10 @@
 					<dt>Courier</dt><dd>{r.carrier_name ?? '—'} <span class="mono">{r.forward_awb ?? ''}</span></dd>
 					<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 					<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
-					{#if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
+					{#if r.kind === 'customer_return'}
+						<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>
+						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>Delivered to warehouse {dateShort(r.rto_delivered_at)}</dd>{/if}
+					{:else if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
 				</dl>
 				{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
 				{#if detail.items.length}<div class="mitems">{#key r.id}<ItemList items={detail.items} rtoId={r.id} />{/key}</div>{/if}
@@ -214,7 +217,7 @@
 				<div class="card warnline">Already saved as an unknown parcel{r.scanned_at ? ` on ${dateShort(r.scanned_at)}` : ''}. Matching it to an order comes in a later update.</div>
 			{:else}
 				<div class="card picker-card">
-					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} claimHref={!openClaim && r.forward_awb && r.courier ? claimHref(r.id, '/scan', { scanned: true, ret: 'from' }) : null} onsaved={saved} />
+					<StatusPicker rto={r} scanned={true} title={already ? 'Change status' : 'What happened to this parcel?'} claimHref={!openClaim && r.forward_awb && r.courier && r.kind !== 'customer_return' ? claimHref(r.id, '/scan', { scanned: true, ret: 'from' }) : null} onsaved={saved} />
 				</div>
 			{/if}
 			<button class="linkbtn" onclick={() => { closeCard(); scanner?.focusInput(); }}>Not this parcel? Scan again</button>

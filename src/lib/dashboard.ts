@@ -29,6 +29,9 @@ export interface Rto {
 	legacy_source: string | null;
 	amount_collected?: number | string | null;
 	disputes?: VelDispute[] | null; // Velocity shipment_disputes (from the 15-min sync)
+	kind?: 'rto' | 'customer_return' | null; // customer_return = a reverse pickup we created in Velocity (never an RTO)
+	return_id?: string | null;
+	return_reason?: string | null;
 	reship_order_no?: string | null;
 	reship_awb?: string | null;
 	reship_created_at?: string | null;

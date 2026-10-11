@@ -58,6 +58,15 @@ export const GET: RequestHandler = async () => {
 	}
 
 	try {
+		const { data } = await db().from('settings').select('value').eq('key', 'returns_last_sync').maybeSingle();
+		const v = data?.value as { ok?: boolean; at?: string; error?: string; fetched?: { with_awb?: number } } | null | undefined;
+		// Informational: a failed customer-returns run never turns health red
+		out.returnsSync = !v ? 'not run yet' : v.ok ? `ok (${v.fetched?.with_awb ?? 0} returns at ${v.at})` : `failed: ${v.error} (at ${v.at})`;
+	} catch (e) {
+		out.returnsSync = `failed: ${e instanceof Error ? e.message : String(e)}`;
+	}
+
+	try {
 		const { data } = await db().from('settings').select('value').eq('key', 'reship_last_check').maybeSingle();
 		const v = data?.value as { ok?: boolean; at?: string; error?: string; checked?: number; found?: number } | null | undefined;
 		// Informational only: a failed hourly re-ship check never turns health red

@@ -134,6 +134,14 @@ const ledger = [];
 // Refunds (0016): prepaid RTOs already owing money get a refund row, like the migration's back-fill
 const refunds = rows.filter((r) => ['due', 'credit_due'].includes(r.refund_state)).map((r, i) => ({ id: `00000000-0000-0000-0000-f${String(i).padStart(11, '0')}`, order_no: r.order_no, rto_id: r.id, reason: 'RTO, prepaid: customer does not want it (Ready Stock)', via: null, refund_to: r.refund_state === 'credit_due' ? 'store_credit' : 'original', amount: r.payment_mode === 'partial' ? r.amount_collected : r.order_value, status: 'to_refund', done_at: null, done_ref: null, extra: {}, source: 'rto', created_at: new Date(Date.now() - (i + 1) * 86400000).toISOString(), updated_at: new Date().toISOString(), deleted_at: null }));
 const refundLog = [];
+// a few customer returns (kind 'customer_return'), shaped like the real ones of 11 Oct
+const day = (d) => new Date(Date.now() - d * 86_400_000).toISOString();
+rows.push(
+	{ id: 'c0000000-0000-0000-0000-000000005301', kind: 'customer_return', courier: 'velocity', order_no: '5301', order_name: 'Dropy-5301-ALL', return_id: 'Dropy-5301-ALL-R1', return_reason: 'Received wrong item', forward_awb: '39879817355386', carrier_name: 'Delhivery Standard 250G', order_value: 2009, stage: 'awaiting_receipt', courier_status: 'return_delivered', rto_delivered_at: day(1), last_event_at: day(1), rto_initiated_at: day(7), payment_mode: null, refund_state: 'na', vref: 'pending', items: [{ title: 'White Flower External Analgesic Balm', qty: 1 }], refunds: [] },
+	{ id: 'c0000000-0000-0000-0000-000000004963', kind: 'customer_return', courier: 'velocity', order_no: '4963', return_id: 'Dropy-4963-ALL-R1', return_reason: 'Received wrong item', forward_awb: '253897460004038', carrier_name: 'XpressBees Standard', order_value: 3039, stage: 'in_flight', courier_status: 'return_not_picked', last_event_at: day(2), rto_initiated_at: day(5), refund_state: 'na', vref: 'pending', items: [{ title: 'Serum', qty: 1 }], refunds: [] },
+	{ id: 'c0000000-0000-0000-0000-000000004511', kind: 'customer_return', courier: 'velocity', order_no: '4511', return_id: 'Dropy-4511-ALL-R1', return_reason: 'Received wrong item', forward_awb: '253897460004034', carrier_name: 'XpressBees Standard', order_value: 770.09, stage: 'in_flight', courier_status: 'return_in_transit', last_event_at: day(4), rto_initiated_at: day(5), refund_state: 'na', vref: 'pending', items: [], refunds: [] },
+	{ id: 'c0000000-0000-0000-0000-000000003012', kind: 'customer_return', courier: 'velocity', order_no: '3012', return_id: '#Dropy-3012-R2', return_reason: 'Quality not as expected', forward_awb: '253897460003423', carrier_name: 'XpressBees Standard', order_value: 1299, stage: 'ready_stock', courier_status: 'return_delivered', rto_delivered_at: day(19), rto_initiated_at: day(26), refund_state: 'due', vref: 'approved', items: [{ title: 'Moisturiser', qty: 1 }], refunds: [{ status: 'to_refund', amount: 1299, deleted_at: null }] }
+);
 const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia, ledger, refunds };
 Object.defineProperty(tables, 'ledger_monthly', { enumerable: true, get() {
 	const m = new Map();
@@ -497,6 +505,11 @@ http.createServer(async (req, res) => {
 			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ inserted: n, updated: 0, status_changes: 0 }));
 			return;
 		}
+		if (fn === 'sync_customer_returns') {
+			const n = (args.p_rows ?? []).length;
+			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ inserted: n, updated: 0, status_changes: 0, skipped: 0 }));
+			return;
+		}
 		if (fn === 'record_reship_checks') {
 			const found = (args.p_rows ?? []).filter((x) => x.reship_order_no).length;
 			res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ checked: (args.p_rows ?? []).length, found, new: found }));
@@ -541,6 +554,7 @@ http.createServer(async (req, res) => {
 		if (v.startsWith('eq.')) data = data.filter((r) => String(r[k]) === v.slice(3));
 		else if (v.startsWith('in.(')) { const vs = v.slice(4, -1).split(','); data = data.filter((r) => vs.includes(String(r[k] ?? 'none'))); }
 		else if (v === 'not.is.null') data = data.filter((r) => r[k] != null);
+		else if (v.startsWith('neq.')) data = data.filter((r) => String(r[k] ?? (k === 'kind' ? 'rto' : '')) !== v.slice(4));
 		else if (v === 'is.null') data = data.filter((r) => r[k] == null);
 		else if (v.startsWith('gte.')) data = data.filter((r) => r[k] != null && String(r[k]) >= v.slice(4));
 		else if (v.startsWith('lt.')) data = data.filter((r) => r[k] != null && String(r[k]) < v.slice(3));

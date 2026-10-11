@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ request, url, cookies }) => {
 	await requireUser(request, cookies.get(SESSION_COOKIE));
 	const code = (url.searchParams.get('code') ?? '').slice(0, 80);
-	const { by, matches } = findMatches(await allRtos(), code);
+	const { by, matches } = findMatches(await allRtos({ returns: true }), code);
 	const now = Date.now();
 	return json(
 		{
@@ -27,6 +27,7 @@ export const GET: RequestHandler = async ({ request, url, cookies }) => {
 					stage: BUCKETS[b].label,
 					tone: BUCKETS[b].tone,
 					sheetOnly: isSheetOnly(r),
+					customerReturn: r.kind === 'customer_return',
 					nonDropy: isNonDropy(r)
 				};
 			})

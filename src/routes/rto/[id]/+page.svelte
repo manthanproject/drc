@@ -14,10 +14,12 @@
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
 	import { istTime } from '#lib/scanlog.ts';
 	import { describe } from '#lib/history.ts';
+	import { velocityRefunded } from '#lib/returns-map.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const r = $derived(data.rto);
+	const isReturn = $derived(r.kind === 'customer_return');
 	const bucket = $derived(BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)]);
 	let undo = $state<{ text: string; eventId: number } | null>(null);
 
@@ -148,6 +150,7 @@
 		<a class="back" href={backHref} aria-label="Back">‹</a>
 		<span class="crumb desk-only">{backLabel} ›</span>
 		<h1>{orderLabel(r)}</h1>
+		{#if isReturn}<span class="pill p-ret">Customer return</span>{/if}
 		<span class="pill p-{bucket.tone}">{bucket.label}</span>
 		<span class="money hval desk-only">{inr(num(r.order_value))}</span>
 	</header>
@@ -161,8 +164,10 @@
 				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 				{#if MONEY[r.refund_state]}<dt>Money</dt><dd><span class="pill {MONEY[r.refund_state][1]}">{MONEY[r.refund_state][0]} {inr(paid)}</span></dd>{/if}
 				{#each data.refunds as f (f.id)}<dt>Refund</dt><dd><a class="rfl" href="/refunds?order={encodeURIComponent(f.order_no)}"><span class="pill {RSTATUS[f.status].pill}">{RSTATUS[f.status].label}</span>{f.amount != null ? ` ${inr(Number(f.amount))}` : ''}{f.via ? ` · ${RVIA[f.via]}` : ''} ›</a></dd>{/each}
-				<dt>Courier</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
-				{#if r.rto_delivered_at}<dt>Delivered back</dt><dd>{dateShort(r.rto_delivered_at)}</dd>{/if}
+				{#if isReturn}<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>{/if}
+				{#if isReturn && velocityRefunded(r.vref)}<dt>Velocity refund</dt><dd><span class="pill p-bad">{r.vref}</span><small class="sub">We refund by PayU or bank only: check Velocity did not pay this customer too</small></dd>{/if}
+				<dt>{isReturn ? 'Return courier' : 'Courier'}</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
+				{#if r.rto_delivered_at}<dt>{isReturn ? 'Delivered to warehouse' : 'Delivered back'}</dt><dd>{dateShort(r.rto_delivered_at)}</dd>{/if}
 				{#if r.last_event_text}<dt>Last courier event</dt><dd>{r.last_event_text}{r.last_event_at ? `, ${dateShort(r.last_event_at)}` : ''}</dd>{/if}
 				{#if r.reship_date}<dt>Re-ship date</dt><dd>{dateShort(r.reship_date + 'T12:00:00Z')}</dd>{/if}
 			</dl>
@@ -192,7 +197,7 @@
 
 		<div class="right">
 		{#if undo}<div class="o-undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
-		{#if r.stage === 'awaiting_receipt' && !r.scanned_at && !openClaim && r.courier && r.rto_delivered_at}
+		{#if !isReturn && r.stage === 'awaiting_receipt' && !r.scanned_at && !openClaim && r.courier && r.rto_delivered_at}
 			<div class="card o-claim mdndhint">
 				<b>Not received?</b>
 				<p class="small muted">The courier marked it delivered back on {dateShort(r.rto_delivered_at)}. If it is not in the warehouse, draft an MDND dispute today: Velocity only accepts it within 48 hours of that time.</p>
@@ -254,7 +259,7 @@
 		{#if err}<p class="err o-err" role="alert">{err}</p>{/if}
 
 		{#if r.stage !== 'unknown_parcel'}
-			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
+			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb && !isReturn ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
 		{/if}
 		{#if canUnreceive}
 			<div class="card o-na na">

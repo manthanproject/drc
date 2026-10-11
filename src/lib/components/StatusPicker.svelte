@@ -7,6 +7,7 @@
 		payment_mode: 'cod' | 'prepaid' | 'partial' | null;
 		order_value: number | string | null;
 		amount_collected?: number | string | null;
+		kind?: string | null;
 	}
 	type Saved = { event_id: number; to: string; label: string };
 	let {
@@ -24,8 +25,10 @@
 	let err = $state('');
 	let claimInfo = $state(false);
 
-	const paidUpfront = $derived(rto.payment_mode === 'partial' ? num(rto.amount_collected) : num(rto.order_value));
-	const needsMoney = $derived(rto.payment_mode === 'prepaid' || rto.payment_mode === 'partial');
+	const isReturn = $derived(rto.kind === 'customer_return');
+	const paidUpfront = $derived(!isReturn && rto.payment_mode === 'partial' ? num(rto.amount_collected) : num(rto.order_value));
+	// customer returns are always refunded by us (PayU / bank) or given store credit
+	const needsMoney = $derived(isReturn || rto.payment_mode === 'prepaid' || rto.payment_mode === 'partial');
 
 	function toggle(p: typeof open) {
 		err = '';
@@ -67,6 +70,20 @@
 <section class="picker" aria-label={title}>
 	<div class="ttl">{title}</div>
 	<div class="grid">
+		{#if isReturn}
+		<button class="opt" class:sel={open === 'ready_stock'} disabled={busy} onclick={() => { err = ''; readyStock(); }}>
+			<span class="ic ok">✓</span><span><b>OK → Ready Stock</b><small>Unused, right product</small></span>
+		</button>
+		<button class="opt" class:sel={open === 'hold'} disabled={busy} onclick={() => toggle('hold')}>
+			<span class="ic warn">❚❚</span><span><b>Problem → Hold</b><small>Wrong, used or damaged</small></span>
+		</button>
+		<button class="opt" class:sel={open === 'reship'} disabled={busy} onclick={() => toggle('reship')}>
+			<span class="ic ok">⇢</span><span><b>Exchange</b><small>Send a new one</small></span>
+		</button>
+		<button class="opt" disabled={busy} onclick={() => save('close')}>
+			<span class="ic mute">✔</span><span><b>Close</b><small>Nothing left to do</small></span>
+		</button>
+		{:else}
 		<button class="opt" class:sel={open === 'received'} disabled={busy} onclick={() => toggle('received')}>
 			<span class="ic ok">✓</span><span><b>Received OK</b><small>Call or Ready Stock</small></span>
 		</button>
@@ -91,6 +108,7 @@
 		<button class="opt" disabled={busy} onclick={() => save('close')}>
 			<span class="ic mute">✔</span><span><b>Close</b><small>Nothing left to do</small></span>
 		</button>
+		{/if}
 	</div>
 
 	{#if claimInfo}
@@ -109,7 +127,7 @@
 
 	{#if open === 'ready_stock'}
 		<div class="panel acc">
-			<div class="ptitle">{rto.payment_mode === 'partial' ? 'Partly prepaid' : 'Prepaid'}: customer paid {inr(paidUpfront)}. Give back as…</div>
+			<div class="ptitle">{#if isReturn}Customer return, {inr(paidUpfront)}. Give back as (refund by PayU or bank, never Velocity)…{:else}{rto.payment_mode === 'partial' ? 'Partly prepaid' : 'Prepaid'}: customer paid {inr(paidUpfront)}. Give back as…{/if}</div>
 			<div class="two">
 				<button class="go accb" disabled={busy} onclick={() => save('ready_stock', { money: 'refund' })}>Refund {inr(paidUpfront)}</button>
 				<button class="go" disabled={busy} onclick={() => save('ready_stock', { money: 'credit' })}>Store credit {inr(paidUpfront)}</button>
@@ -127,8 +145,8 @@
 
 	{#if open === 'hold'}
 		<div class="panel warn">
-			<label class="ptitle" for="hnote-{rto.id}">Why on hold? (optional)</label>
-			<textarea id="hnote-{rto.id}" rows="2" bind:value={note} maxlength="500" placeholder="e.g. customer asked to call Monday"></textarea>
+			<label class="ptitle" for="hnote-{rto.id}">{isReturn ? 'What is wrong with it? (a refund row "On hold" is made)' : 'Why on hold? (optional)'}</label>
+			<textarea id="hnote-{rto.id}" rows="2" bind:value={note} maxlength="500" placeholder={isReturn ? 'e.g. seal broken, half used' : 'e.g. customer asked to call Monday'}></textarea>
 			<button class="go warnb full" disabled={busy} onclick={() => save('hold', note.trim() ? { note: note.trim() } : {})}>Save hold</button>
 		</div>
 	{/if}
