@@ -28,6 +28,13 @@ globalThis.fetch = async (input, init = {}) => {
 		if (url.includes('/courier/track/awb/') && !url.endsWith('/SR123456789')) return json({ tracking_data: { shipment_track: [{ awb_code: url.split('/').pop(), current_status: 'RTO IN TRANSIT' }], shipment_track_activities: [{ date: '2026-10-08 09:00:00', activity: 'In transit', location: 'Bhiwandi', 'sr-status-label': 'RTO IN TRANSIT' }] } });
 		if (url.includes('/courier/track/awb/')) return json({ tracking_data: { track_status: 1, shipment_status: 10, shipment_track: [{ awb_code: 'SR123456789', current_status: 'RTO DELIVERED', delivered_date: '2026-10-09 14:02:00', courier_name: 'Delhivery Surface', consignee_name: 'SECRET' }], shipment_track_activities: [{ date: '2026-10-09 14:02:00', activity: 'RTO Delivered', location: 'Vashi', 'sr-status': '10', 'sr-status-label': 'RTO DELIVERED' }] } });
 	}
+	// FAKE_VELOCITY_RETURNS=1: Velocity customer returns (POST /returns), shape from Velocity's API docs
+	if (process.env.FAKE_VELOCITY_RETURNS === '1' && url.endsWith('/returns')) return json({ data: [
+		{ id: 'r1', type: 'return', attributes: { display_id: 'Dropy-5301-ALL-R1', status: 'delivered', refund_status: 'pending', qc_status: 'not_eligible', return_reason: 'other', total_price: 2009, is_exchange: false, created_at: '2026-10-04T09:18:00Z', shipping_address: { name: 'SECRET', phone: '9999999999' },
+			return_items: [{ quantity: 1, price: 2009, name: 'White Flower Balm', sku: 'Dropy-B0X' }],
+			shipment: { tracking_number: '39879817355386', status: 'delivered', carrier: { name: 'Delhivery Standard' }, shipment_milestones: [{ milestone: 'return_delivered', milestone_at: '2026-10-10T08:00:00Z' }] },
+			order: { display_id: 'Dropy-5301-ALL', channel: 'website' } } }
+	], meta: { total: 1 } });
 	if (url.startsWith('https://script.google.com/')) return json({ ok: true, accessToken: `fake-token-${++tokens}`, account: 'fake@dev' });
 	// FAKE_DRIVE_EXPIRED_TOKEN=1: the first token handed out is already expired (Drive answers 401), like a part-used Apps Script token
 	const auth = String(new Headers(init.headers ?? {}).get('authorization') ?? '');
