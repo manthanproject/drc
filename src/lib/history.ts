@@ -57,7 +57,10 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			if (p.action === 'cn_set_aside')
 				text = `Credit note ${p.args?.ticket_ref ?? ''} paid ${rupees(Number(p.args?.amount ?? 0))} for this parcel${p.args?.status === 'lost' ? ' as lost' : ''}, but we have it back: set aside, not a claim (Velocity may take it back)`;
 			if (p.action === 'claim_raised') text = `Claim marked raised${p.args?.ticket_ref ? ` (ref ${p.args.ticket_ref})` : ''}`;
-			if (p.action === 'ready_stock' && p.args?.money) text += p.args.money === 'credit' ? ' · store credit' : ' · refund';
+			if ((p.action === 'ready_stock' || p.action === 'close') && p.args?.money) {
+				const MONEY: Record<string, string> = { refund: 'refund', credit: 'store credit', replacement: 'replacement sent', none: 'no refund' };
+				text += `${p.action === 'close' ? ' · not resellable' : ''} · ${MONEY[p.args.money] ?? p.args.money}`;
+			}
 			if (p.action === 'reship' && p.args?.reship_date) text += ` on ${dateShort(p.args.reship_date + 'T12:00:00Z')}`;
 			if (p.args?.scanned) text = 'Scanned · ' + text;
 			if (p.args?.note) text += ` — ${p.args.note}`;

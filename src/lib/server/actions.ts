@@ -59,7 +59,7 @@ export function fail(message: string): never {
 }
 
 export interface ActionArgs {
-	money?: 'refund' | 'credit';
+	money?: 'refund' | 'credit' | 'replacement' | 'none'; // replacement / none: customer returns only (the database refuses them for RTOs)
 	reship_date?: string;
 	note?: string;
 	scanned?: boolean;
@@ -68,7 +68,7 @@ export interface ActionArgs {
 export function cleanArgs(raw: unknown): ActionArgs {
 	const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
 	const out: ActionArgs = {};
-	if (b.money === 'refund' || b.money === 'credit') out.money = b.money;
+	if (b.money === 'refund' || b.money === 'credit' || b.money === 'replacement' || b.money === 'none') out.money = b.money;
 	if (typeof b.reship_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.reship_date)) out.reship_date = b.reship_date;
 	if (typeof b.note === 'string' && b.note.trim()) out.note = b.note.trim().slice(0, 500);
 	if (b.scanned === true) out.scanned = true;

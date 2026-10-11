@@ -88,3 +88,12 @@ test('returns screen: tabs, late arrivals, failing pickups, refunds to do, Veloc
 	assert.deepEqual(g.velocityPaid.map((x) => x.id), ['g']);
 	assert.equal(retStatusText('return_not_picked'), 'Pickup failed');
 });
+
+test('history says what the customer got back from a return', async () => {
+	const { describe: say } = await import('../src/lib/history.ts');
+	const ev = (action: string, money: string, to: string) => say({ id: 1, source: 'user', kind: 'stage_change', received_at: '2026-10-11T10:00:00Z', payload: { action, to, args: { money } } } as never).text;
+	assert.match(ev('ready_stock', 'replacement', 'ready_stock'), /replacement sent$/);
+	assert.match(ev('ready_stock', 'none', 'ready_stock'), /no refund$/);
+	assert.match(ev('close', 'refund', 'closed'), /not resellable · refund$/);
+	assert.match(ev('ready_stock', 'credit', 'ready_stock'), /store credit$/);
+});

@@ -18,7 +18,7 @@
 		onsaved
 	}: { rto: PickerRto; scanned?: boolean; title?: string; claimHref?: string | null; onsaved: (r: Saved) => void } = $props();
 
-	let open = $state<null | 'received' | 'ready_stock' | 'reship' | 'hold'>(null);
+	let open = $state<null | 'received' | 'ready_stock' | 'reship' | 'hold' | 'ret_good' | 'ret_bad'>(null);
 	let reshipDate = $state(istTomorrow(Date.now()));
 	let note = $state('');
 	let busy = $state(false);
@@ -71,17 +71,17 @@
 	<div class="ttl">{title}</div>
 	<div class="grid">
 		{#if isReturn}
-		<button class="opt" class:sel={open === 'ready_stock'} disabled={busy} onclick={() => { err = ''; readyStock(); }}>
-			<span class="ic ok">✓</span><span><b>OK → Ready Stock</b><small>Unused, right product</small></span>
+		<button class="opt" class:sel={open === 'ret_good'} disabled={busy} onclick={() => toggle('ret_good')}>
+			<span class="ic ok">✓</span><span><b>Good → Ready Stock</b><small>Resellable</small></span>
+		</button>
+		<button class="opt" class:sel={open === 'ret_bad'} disabled={busy} onclick={() => toggle('ret_bad')}>
+			<span class="ic bad">✕</span><span><b>Damaged / expired</b><small>Not resellable</small></span>
 		</button>
 		<button class="opt" class:sel={open === 'hold'} disabled={busy} onclick={() => toggle('hold')}>
-			<span class="ic warn">❚❚</span><span><b>Problem → Hold</b><small>Wrong, used or damaged</small></span>
-		</button>
-		<button class="opt" class:sel={open === 'reship'} disabled={busy} onclick={() => toggle('reship')}>
-			<span class="ic ok">⇢</span><span><b>Exchange</b><small>Send a new one</small></span>
+			<span class="ic warn">❚❚</span><span><b>Decide later</b><small>Hold</small></span>
 		</button>
 		<button class="opt" disabled={busy} onclick={() => save('close')}>
-			<span class="ic mute">✔</span><span><b>Close</b><small>Nothing left to do</small></span>
+			<span class="ic mute">✔</span><span><b>Close</b><small>Nothing to do</small></span>
 		</button>
 		{:else}
 		<button class="opt" class:sel={open === 'received'} disabled={busy} onclick={() => toggle('received')}>
@@ -125,6 +125,19 @@
 		</div>
 	{/if}
 
+	{#if open === 'ret_good' || open === 'ret_bad'}
+		<div class="panel {open === 'ret_good' ? 'ok' : 'warn'}">
+			<div class="ptitle">{open === 'ret_good' ? 'Item goes to Ready Stock.' : 'Item is not resellable (not added to stock).'} What does the customer get?</div>
+			<div class="two">
+				<button class="go accb" disabled={busy} onclick={() => save(open === 'ret_good' ? 'ready_stock' : 'close', { money: 'refund' })}>Refund {inr(paidUpfront)}<small class="bsub">PayU or bank</small></button>
+				<button class="go" disabled={busy} onclick={() => save(open === 'ret_good' ? 'ready_stock' : 'close', { money: 'credit' })}>Store credit {inr(paidUpfront)}</button>
+				<button class="go" disabled={busy} onclick={() => save(open === 'ret_good' ? 'ready_stock' : 'close', { money: 'replacement' })}>Replacement sent</button>
+				<button class="go" disabled={busy} onclick={() => save(open === 'ret_good' ? 'ready_stock' : 'close', { money: 'none' })}>No refund</button>
+			</div>
+			<span class="small muted">Refund and store credit make a row in Refunds. Replacement / no refund are noted on the return.</span>
+		</div>
+	{/if}
+
 	{#if open === 'ready_stock'}
 		<div class="panel acc">
 			<div class="ptitle">{#if isReturn}Customer return, {inr(paidUpfront)}. Give back as (refund by PayU or bank, never Velocity)…{:else}{rto.payment_mode === 'partial' ? 'Partly prepaid' : 'Prepaid'}: customer paid {inr(paidUpfront)}. Give back as…{/if}</div>
@@ -145,8 +158,8 @@
 
 	{#if open === 'hold'}
 		<div class="panel warn">
-			<label class="ptitle" for="hnote-{rto.id}">{isReturn ? 'What is wrong with it? (a refund row "On hold" is made)' : 'Why on hold? (optional)'}</label>
-			<textarea id="hnote-{rto.id}" rows="2" bind:value={note} maxlength="500" placeholder={isReturn ? 'e.g. seal broken, half used' : 'e.g. customer asked to call Monday'}></textarea>
+			<label class="ptitle" for="hnote-{rto.id}">{isReturn ? 'Why decide later? (a refund row "On hold" is made so it is not forgotten)' : 'Why on hold? (optional)'}</label>
+			<textarea id="hnote-{rto.id}" rows="2" bind:value={note} maxlength="500" placeholder={isReturn ? 'e.g. checking expiry with supplier' : 'e.g. customer asked to call Monday'}></textarea>
 			<button class="go warnb full" disabled={busy} onclick={() => save('hold', note.trim() ? { note: note.trim() } : {})}>Save hold</button>
 		</div>
 	{/if}
@@ -184,6 +197,7 @@
 	.accb { background: var(--acc); border-color: var(--acc); color: #fff; }
 	.warnb { background: var(--warn); border-color: var(--warn); color: #fff; }
 	.full { width: 100%; }
+	.go .bsub { display: block; font-size: 11px; font-weight: 600; opacity: 0.85; }
 	input[type='date'], textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: 10px 12px; font-size: 15px; }
 	input[type='date'] { height: 46px; }
 	.err { color: var(--bad); font-size: 13px; font-weight: 600; }
