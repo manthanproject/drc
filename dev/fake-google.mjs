@@ -3,8 +3,43 @@
 // Resumable uploads are pointed at the mock server (dev/mock-supabase.mjs, /fake-upload/…), which answers like Drive.
 const real = globalThis.fetch;
 // FAKE_REFUND_SHEET=path.json: rows of the "Dropy Refund" tab for the one-time import ([[{text, bg}]])
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 if (process.env.FAKE_REFUND_SHEET) globalThis.__drcRefundSheet = JSON.parse(readFileSync(process.env.FAKE_REFUND_SHEET, 'utf8'));
+// FAKE_RETURN_SHEET=path.json: the "Return Orders" tab ([[cell, …], …], header first) for Sheet ↔ DRC; writes go back to the file
+if (process.env.FAKE_RETURN_SHEET) {
+	const path = process.env.FAKE_RETURN_SHEET;
+	const load = () => JSON.parse(readFileSync(path, 'utf8'));
+	const save = (rows) => writeFileSync(path, JSON.stringify(rows));
+	const colIdx = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+	globalThis.__drcSheetsFake = { spreadsheets: {
+		get: async () => ({ data: { sheets: [{ properties: { title: 'Return Orders' } }, { properties: { title: 'Dropy Refund' } }] } }),
+		values: {
+			get: async ({ range }) => {
+				const rows = load();
+				const m = range.match(/!([A-Z]+)1:([A-Z]+)$/);
+				if (m && m[1] === m[2]) return { data: { values: rows.map((r) => [r[colIdx(m[1])] ?? '']) } };
+				return { data: { values: rows } };
+			},
+			batchUpdate: async ({ requestBody }) => {
+				const rows = load();
+				for (const d of requestBody.data) {
+					const m = d.range.match(/!([A-Z]+)(\d+)$/);
+					const r = +m[2] - 1, c = colIdx(m[1]);
+					while (rows.length <= r) rows.push([]);
+					rows[r][c] = d.values[0][0];
+				}
+				save(rows);
+				return { data: {} };
+			},
+			append: async ({ requestBody }) => {
+				const rows = load();
+				rows.push(...requestBody.values);
+				save(rows);
+				return { data: {} };
+			}
+		}
+	} };
+}
 const files = new Map(); // id → {name, parent, mimeType}
 let n = 0;
 let tokens = 0;

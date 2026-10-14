@@ -19,8 +19,9 @@ export function sheetsReadonly(): sheets_v4.Sheets {
 let writerClient: sheets_v4.Sheets | null = null;
 
 /**
- * Sheets client that can WRITE. Used ONLY by ready-stock-sheet.ts, which touches nothing but the
- * "DRC Ready Stock" tab of Dropy Return Orders (drc-reader is Editor there; DROPPY-Log stays Viewer).
+ * Sheets client that can WRITE, on Dropy Return Orders only (drc-reader is Editor there; DROPPY-Log stays Viewer).
+ * Used by ready-stock-sheet.ts ("DRC Ready Stock" tab) and sheet-sync.ts ("Return Orders" tab: appends rows and
+ * rewrites "RTO - Status" cells, never deletes).
  */
 export function sheetsWriter(): sheets_v4.Sheets {
 	if (!writerClient) {

@@ -142,7 +142,8 @@ rows.push(
 	{ id: 'c0000000-0000-0000-0000-000000004511', kind: 'customer_return', courier: 'velocity', order_no: '4511', return_id: 'Dropy-4511-ALL-R1', return_reason: 'Received wrong item', forward_awb: '253897460004034', carrier_name: 'XpressBees Standard', order_value: 770.09, stage: 'in_flight', courier_status: 'return_in_transit', last_event_at: day(4), rto_initiated_at: day(5), refund_state: 'na', vref: 'pending', items: [], refunds: [] },
 	{ id: 'c0000000-0000-0000-0000-000000003012', kind: 'customer_return', courier: 'velocity', order_no: '3012', return_id: '#Dropy-3012-R2', return_reason: 'Quality not as expected', forward_awb: '253897460003423', carrier_name: 'XpressBees Standard', order_value: 1299, stage: 'ready_stock', courier_status: 'return_delivered', rto_delivered_at: day(19), rto_initiated_at: day(26), refund_state: 'due', vref: 'approved', items: [{ title: 'Moisturiser', qty: 1 }], refunds: [{ status: 'to_refund', amount: 1299, deleted_at: null }] }
 );
-const tables = { rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia, ledger, refunds };
+const sheetSync = [];
+const tables = { sheet_sync: sheetSync, rtos: rows, claims, claim_money: claimMoney, settings, rto_items: rtoItems, events, rto_media: rtoMedia, ledger, refunds };
 Object.defineProperty(tables, 'ledger_monthly', { enumerable: true, get() {
 	const m = new Map();
 	for (const l of ledger) { const k = [l.at.slice(0, 7), l.category, l.txn_type].join('|'); const a = m.get(k) ?? { source: 'velocity_passbook', month: l.at.slice(0, 7), category: l.category, txn_type: l.txn_type, n: 0, amount: 0 }; a.n++; a.amount += Number(l.amount); m.set(k, a); }
@@ -356,6 +357,14 @@ function mockNotArrived({ p_rto, p_note }) {
 	events.unshift({ id, source: 'user', rto_id: r.id, kind: 'stage_change', received_at: new Date().toISOString(), payload: { action: 'not_arrived', from: before.stage, to, before, items_back: back, args: { note: p_note } } });
 	return [200, { event_id: id, from: before.stage, to }];
 }
+function mockAddSheet({ p_order, p_stage, p_note, p_received_on }) {
+	if (rows.some((r) => r.order_no === p_order && (r.kind ?? 'rto') === 'rto')) return [400, { message: 'DRC_SHEET_ORDER_EXISTS' }];
+	const id = `00000000-0000-0000-0000-${String(800000 + ++eventId).padStart(12, '0')}`;
+	const at = p_received_on ? `${p_received_on}T06:30:00Z` : new Date().toISOString();
+	rows.push({ id, legacy_source: 'sheet', order_no: p_order, order_name: `Dropy-${p_order}`, stage: p_stage, scanned_at: at, notes: `[sheet] ${p_note}`, kind: 'rto', refund_state: 'na', callback_attempts: 0, reship_state: 'none', created_at: new Date().toISOString() });
+	events.unshift({ id: ++eventId, source: 'user', rto_id: id, kind: 'sheet_added', received_at: new Date().toISOString(), payload: { order_no: p_order, stage: p_stage } });
+	return [200, { id }];
+}
 function mockReceivedOn({ p_rto, p_day, p_today_scan_only }) {
 	const r = rows.find((x) => x.id === p_rto);
 	if (!r) return [400, { message: 'DRC_NOT_FOUND' }];
@@ -511,6 +520,13 @@ http.createServer(async (req, res) => {
 		res.writeHead(201, { 'content-type': 'application/json' }).end('[]');
 		return;
 	}
+	if (req.method === 'POST' && tname === 'sheet_sync') {
+		let body = '';
+		for await (const c of req) body += c;
+		for (const x of [].concat(JSON.parse(body || '[]'))) { const i = sheetSync.findIndex((y) => y.order_no === x.order_no); if (i >= 0) sheetSync[i] = { ...sheetSync[i], ...x }; else sheetSync.push(x); }
+		res.writeHead(201, { 'content-type': 'application/json' }).end('[]');
+		return;
+	}
 	if (req.method === 'POST' && !u.pathname.startsWith('/rest/v1/rpc/') && tables[tname] && tname !== 'settings') {
 		let body = '';
 		for await (const c of req) body += c;
@@ -526,8 +542,8 @@ http.createServer(async (req, res) => {
 		const fn = u.pathname.split('/').pop();
 		const args = JSON.parse(body || '{}');
 		rpcLog.push({ fn, args });
-		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds', 'clear_today_scan', 'set_received_on'].includes(fn)) {
-			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, clear_today_scan: mockClearScan, set_received_on: mockReceivedOn, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
+		if (['rto_action', 'undo_rto_action', 'create_rto_claim', 'claim_action', 'create_mdnd_claim', 'stock_action', 'raise_ticket', 'import_ledger', 'ledger_action', 'apply_credit_note', 'mark_not_arrived', 'refund_action', 'import_refunds', 'clear_today_scan', 'set_received_on', 'add_sheet_only_rto'].includes(fn)) {
+			const [st, out] = { rto_action: mockAction, undo_rto_action: mockUndo, create_rto_claim: mockClaim, claim_action: mockClaimAction, create_mdnd_claim: mockMdnd, stock_action: mockStock, raise_ticket: mockTicket, import_ledger: mockImportLedger, ledger_action: mockLedgerAction, apply_credit_note: mockCn, mark_not_arrived: mockNotArrived, clear_today_scan: mockClearScan, set_received_on: mockReceivedOn, add_sheet_only_rto: mockAddSheet, refund_action: mockRefund, import_refunds: mockImportRefunds }[fn](args);
 			res.writeHead(st, { 'content-type': 'application/json' }).end(JSON.stringify(out));
 			return;
 		}

@@ -111,6 +111,7 @@
 				<a href="/rtos?f=delayed"><svg viewBox="0 0 24 24" aria-hidden="true" class="amber"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>Delayed<b>{d.delayed.n}</b></a>
 				<a href="/money"><svg viewBox="0 0 24 24" aria-hidden="true" class="green"><rect x="3" y="6" width="18" height="13" rx="3" /><path d="M3 10h18" /></svg>Money<b>{d.creditDue.n}</b></a>
 				<a href="/returns" class="wide"><svg viewBox="0 0 24 24" aria-hidden="true" class="purple"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg>Customer returns<span class="rsub">{data.returns.arrived ? `${data.returns.arrived} arrived` : `${data.returns.coming} coming`}</span><b>{data.returns.arrived + data.returns.coming}</b></a>
+				<a href="/sheet" class="wide"><svg viewBox="0 0 24 24" aria-hidden="true" class="green"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 3v18" /></svg>Sheet check<span class="rsub">{data.sheetCheck.failed ? 'last check failed' : data.sheetCheck.decide ? 'needs your decision' : 'Return Orders sheet'}</span><b>{data.sheetCheck.decide}</b></a>
 			</div>
 
 			<div class="card desk-only">

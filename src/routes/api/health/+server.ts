@@ -67,6 +67,15 @@ export const GET: RequestHandler = async () => {
 	}
 
 	try {
+		const { data } = await db().from('settings').select('value').eq('key', 'sheet_sync_last').maybeSingle();
+		const v = data?.value as { ok?: boolean; at?: string; error?: string; applied?: boolean; counts?: Record<string, number> } | null | undefined;
+		// Informational: Sheet ↔ DRC never turns health red
+		out.sheetSync = !v ? 'not run yet' : v.ok ? `ok (${v.applied ? 'synced' : 'checked'}, ${v.counts?.decide ?? 0} to decide, at ${v.at})` : `failed: ${v.error} (at ${v.at})`;
+	} catch (e) {
+		out.sheetSync = `failed: ${e instanceof Error ? e.message : String(e)}`;
+	}
+
+	try {
 		const { data } = await db().from('settings').select('value').eq('key', 'reship_last_check').maybeSingle();
 		const v = data?.value as { ok?: boolean; at?: string; error?: string; checked?: number; found?: number } | null | undefined;
 		// Informational only: a failed hourly re-ship check never turns health red

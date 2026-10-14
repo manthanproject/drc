@@ -7,7 +7,7 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ setHeaders }) => {
 	setHeaders({ 'cache-control': 'no-store' });
-	const [s, today, ref, unmatched, rets] = await Promise.all([
+	const [s, today, ref, unmatched, rets, sheet] = await Promise.all([
 		loadSnapshot(),
 		scannedToday(),
 		db().from('refunds').select('order_no, status, created_at').is('deleted_at', null).in('status', ['to_refund', 'waiting', 'needs_check', 'on_hold'])
@@ -15,7 +15,9 @@ export const load: PageServerLoad = async ({ setHeaders }) => {
 		// claim money in the passbook that no credit note / claim is linked to yet
 		db().from('ledger').select('amount').eq('category', 'claim_credit').is('credit_id', null).is('label', null).limit(200),
 		// customer returns still moving or waiting to be scanned (Home pill)
-		db().from('rtos').select('stage').eq('kind', 'customer_return').in('stage', ['in_flight', 'delayed', 'awaiting_receipt']).limit(500)
+		db().from('rtos').select('stage').eq('kind', 'customer_return').in('stage', ['in_flight', 'delayed', 'awaiting_receipt']).limit(500),
+		// Sheet ↔ DRC: last check (cron every 15 min) — how many need a decision
+		db().from('settings').select('value').eq('key', 'sheet_sync_last').maybeSingle()
 	]);
 	const d = buildDashboard(s.rtos, s.claims, s.rules, s.now);
 	const open = (ref.data ?? []) as { order_no: string; status: string }[];
@@ -36,5 +38,7 @@ export const load: PageServerLoad = async ({ setHeaders }) => {
 	}, s.now);
 	const retStages = ((rets.data ?? []) as { stage: string }[]).map((x) => x.stage);
 	const returns = { arrived: retStages.filter((x) => x === 'awaiting_receipt').length, coming: retStages.filter((x) => x !== 'awaiting_receipt').length };
-	return { d, rules: s.rules, sync: syncState(s.lastSync, s.now), today, refunds, srWarn, money, returns };
+	const sl = sheet.data?.value as { ok?: boolean; counts?: { decide?: number; onlySheet?: number } } | undefined;
+	const sheetCheck = { decide: sl?.counts?.decide ?? 0, failed: sl?.ok === false };
+	return { d, rules: s.rules, sync: syncState(s.lastSync, s.now), today, refunds, srWarn, money, returns, sheetCheck };
 };
