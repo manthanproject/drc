@@ -6,7 +6,7 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-	const stageLabel = (s: string) => (s === 'skip' ? 'RTO in transit' : (BUCKETS[bucketOfStage(s)]?.label ?? s));
+	const stageLabel = (s: string) => (s === 'skip' ? 'RTO in transit' : s === 'reshipped' ? 'Re-shipped (done)' : (BUCKETS[bucketOfStage(s)]?.label ?? s));
 	const tone = (s: string) => BUCKETS[bucketOfStage(s)]?.tone ?? 'mute';
 	const ACT: Record<string, string> = { close: 'Received → Closed', received_call: 'Received → To call', hold: 'Received → Hold', ready_stock: 'Received → Ready Stock' };
 	const here = '/sheet';
@@ -88,7 +88,7 @@
 						<div class="row">
 							<div class="what">
 								<b>#{d.order}</b> <span class="small muted">row {d.row} · {d.why}</span>
-								<div class="vs"><span class="small">Sheet: <b>"{d.words || '—'}"</b></span><span class="small">DRC: <span class="pill p-{tone(d.drcStage)}">{stageLabel(d.drcStage)}</span></span></div>
+								<div class="vs"><span class="small">Sheet: <b>"{d.words || '—'}"</b>{#if d.status} · Status "{d.status}"{/if} <span class="muted">(reads as {stageLabel(d.sheetStage)})</span></span><span class="small">DRC: <span class="pill p-{tone(d.drcStage)}">{stageLabel(d.drcStage)}</span></span></div>
 							</div>
 							<div class="btns">
 								{#if !['in_flight', 'delayed', 'lost', 'awaiting_receipt'].includes(d.drcStage)}<button class="go sm accb" disabled={!!busy} onclick={() => post({ op: 'use_drc', order: d.order }, d.order)}>Use DRC</button>{/if}

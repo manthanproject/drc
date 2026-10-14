@@ -7,7 +7,8 @@
 
 export const TAB = 'Return Orders';
 
-export type SheetStage = 'claim' | 'ready_stock' | 'reship' | 'to_call' | 'store_credit' | 'hold' | 'closed' | 'skip';
+// 'reshipped' = the sheet says it was already sent again (done), unlike 'reship' = still to be re-delivered
+export type SheetStage = 'claim' | 'ready_stock' | 'reship' | 'reshipped' | 'to_call' | 'store_credit' | 'hold' | 'closed' | 'skip';
 
 export interface SheetRow {
 	row: number; // 1-based row number in the tab
@@ -99,16 +100,28 @@ export function parseSheet(values: unknown[][]): { cols: Cols; rows: SheetRow[] 
 
 /** The sheet's words → a DRC status (same rules as the 4 Oct import). */
 export function stageFor(rtoStatus: string, status = '', items = ''): SheetStage {
-	const t = rtoStatus.toLowerCase();
-	if (/claim|dispute/.test(t) || /claim/.test(status.toLowerCase()) || /rto claim/.test(items.toLowerCase())) return 'claim';
+	const t = rtoStatus.toLowerCase().replace(/[’‘`]/g, "'").trim();
+	// a cell DRC wrote ("Ready stock — didn't pick") reads as DRC's own word, whatever note follows it
+	if (/claim/.test(status.toLowerCase()) || /rto claim/.test(items.toLowerCase())) return 'claim';
+	const own = t.match(/^(call customer|re-deliver|ready stock|store credit|hold|claim|all received)\b/);
+	if (own) return ({ 'call customer': 'to_call', 're-deliver': 'reship', 'ready stock': 'ready_stock', 'store credit': 'store_credit', hold: 'hold', claim: 'claim', 'all received': 'closed' } as const)[own[1] as 'hold'];
+	if (/claim|dispute/.test(t)) return 'claim';
 	if (/rto in transit/.test(t)) return 'skip';
-	if (/\bstar\b|★|ready stock|doesn'?t want|dont want|do not want|cancel|by mistake|again placed/.test(t)) return 'ready_stock';
+	if (/re-?shipped|re-?dispatched|done re-?ship|sent again|dispatched again/.test(t)) return 'reshipped';
+	if (/\bstar\b|★|ready stock|(doesn'?t|don'?t|didn'?t|do not|does not|not) (want|need)|didn'?t (place|order)|not (placed|ordered)|refus|cancel|by mistake|again placed/.test(t)) return 'ready_stock';
 	if (/pick ?up/.test(t)) return 'reship';
-	if (/call|\bpick|busy|voice|talk to|back later/.test(t)) return 'to_call';
+	if (/call|\bpick|busy|voice|talk to|back later|switch(ed)? off/.test(t)) return 'to_call';
 	if (/store credit/.test(t)) return 'store_credit';
 	if (/hold|admin pending|expiry/.test(t)) return 'hold';
 	if (/deliver|dispatch|re-?ship|wants|address update/.test(t)) return 'reship';
 	return 'closed';
+}
+
+/** The cell DRC writes: its status first, then the team's own note kept (without an older DRC status in front). */
+export function drcCell(stage: string, reshipDate: string | null | undefined, old: string): string {
+	const label = drcLabel(stage, reshipDate);
+	const rest = clean(old).replace(/^(call customer|re-deliver(\s+\d{1,2}\s+[a-z]{3})?|ready stock|store credit|hold|claim|all received|received)\s*(—|-)?\s*/i, '').trim();
+	return rest && rest.toLowerCase() !== label.toLowerCase() ? `${label} — ${rest}` : label;
 }
 
 /** What DRC writes in "RTO - Status" (each reads back to the same status with stageFor). */
@@ -201,6 +214,8 @@ export const sheetText = (r: Pick<SheetRow, 'rtoStatus' | 'status'>) => `${clean
 export function same(sheet: SheetStage, drcStage: string): boolean {
 	if (TRANSIENT.has(drcStage)) return true; // scanned, not decided yet: anything the sheet says is fine
 	if (sheet === drcStage) return true;
+	if (sheet === 'reshipped') return drcStage === 'closed' || drcStage === 'reship'; // sent again = done
+	if (sheet === 'to_call' && drcStage === 'hold') return true; // DRC moves "no answer" calls to Hold
 	return sheet === 'store_credit' && drcStage === 'ready_stock';
 }
 
@@ -213,6 +228,8 @@ export function receiveAction(stage: SheetStage, paymentMode: string | null | un
 	switch (stage) {
 		case 'closed':
 			return { action: 'close', args: { note: note() } };
+		case 'reshipped':
+			return { action: 'close', args: { note: note('. Already re-shipped') } };
 		case 'to_call':
 			return { action: 'received_call', args: { note: note() } };
 		case 'ready_stock':
@@ -233,7 +250,7 @@ export type Plan = {
 	receive: { order: string; row: number; rtoId: string; stage: SheetStage; words: string; date: string | null; act: Receive }[];
 	append: { order: string; rtoId: string; stage: string; day: string; items: string; values: string[] }[];
 	write: { order: string; row: number; rtoId: string; stage: string; from: string; to: string; col: number }[];
-	decide: { order: string; row: number; rtoId: string; words: string; sheetStage: SheetStage; drcStage: string; why: string }[];
+	decide: { order: string; row: number; rtoId: string; words: string; status: string; sheetStage: SheetStage; drcStage: string; why: string }[];
 	onlySheet: { order: string; row: number; words: string; stage: SheetStage; date: string | null }[];
 	unreadable: { row: number; cell: string; why: string }[];
 	baseline: Baseline[]; // baseline rows to save for orders that are now in step (written after the actions)
@@ -282,7 +299,7 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[] }, rtos: DrcRto[],
 			if (b && b.sheet_text === text && !COURIER_STAGES.has(b.drc_stage)) {
 				const r = waiting[0];
 				if (b.state !== 'ignored' || b.drc_stage !== r.stage)
-					plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, sheetStage: mapped, drcStage: r.stage, why: 'DRC now says not received; the sheet still has the row' });
+					plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, sheetStage: mapped, drcStage: r.stage, why: 'DRC now says not received; the sheet still has the row' });
 				continue;
 			}
 			const r = oldestWaiting(waiting);
@@ -304,16 +321,16 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[] }, rtos: DrcRto[],
 				continue;
 			}
 			if (drcChanged && !sheetChanged) {
-				plan.write.push({ order, row: s.row, rtoId: r.id, stage: r.stage, from: s.rtoStatus, to: drcLabel(r.stage, r.reship_date), col: sheet.cols.rtoStatus });
+				plan.write.push({ order, row: s.row, rtoId: r.id, stage: r.stage, from: s.rtoStatus, to: drcCell(r.stage, r.reship_date, s.rtoStatus), col: sheet.cols.rtoStatus });
 				continue;
 			}
-			plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, sheetStage: mapped, drcStage: r.stage, why: drcChanged ? 'Changed in both since the last sync' : 'The sheet was changed' });
+			plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, sheetStage: mapped, drcStage: r.stage, why: drcChanged ? 'Changed in both since the last sync' : 'The sheet was changed' });
 			continue;
 		}
 		if (ok) {
 			plan.same.push({ order, row: s.row, stage: r.stage });
 			plan.baseline.push({ order_no: order, sheet_text: text, drc_stage: r.stage, state: 'ok' });
-		} else plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, sheetStage: mapped, drcStage: r.stage, why: 'Different on the first check' });
+		} else plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, sheetStage: mapped, drcStage: r.stage, why: 'Different on the first check' });
 	}
 
 	// DRC → sheet: received / claimed parcels whose order the sheet does not mention at all

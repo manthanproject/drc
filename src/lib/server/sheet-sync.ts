@@ -1,7 +1,7 @@
 import { RETURN_ORDERS_ID } from '$app/env/private';
 import { sheetsWriter } from './google.ts';
 import { db } from './supabase.ts';
-import { TAB, parseSheet, parseOrders, compare, planCounts, sheetText, drcLabel, colLetter, COURIER_STAGES, type Plan, type Baseline, type DrcRto } from '#lib/sheet-sync.ts';
+import { TAB, parseSheet, parseOrders, compare, planCounts, sheetText, drcCell, colLetter, COURIER_STAGES, type Plan, type Baseline, type DrcRto } from '#lib/sheet-sync.ts';
 import { istDate, shiftDay } from '#lib/scanlog.ts';
 
 /**
@@ -209,7 +209,7 @@ export async function decide(op: 'use_drc' | 'ignore' | 'add', order: string): P
 	}
 	if (COURIER_STAGES.has(x.drcStage)) throw new Error('DRC says this parcel was not received, so there is no DRC status to write. Use Keep both, or open the parcel.');
 	const r = rtos.find((y) => y.id === x.rtoId);
-	const label = drcLabel(x.drcStage, r?.reship_date);
+	const label = drcCell(x.drcStage, r?.reship_date, s.rtoStatus);
 	const w = await writeCells(sheet.cols, [{ row: x.row, order, col: sheet.cols.rtoStatus, value: label }]);
 	if (!w.written.length) throw new Error('The row moved in the sheet. Refresh the page and try again.');
 	await saveBaselines([{ order_no: order, sheet_text: sheetText({ rtoStatus: label, status: s.status }), drc_stage: x.drcStage, state: 'ok' }]);

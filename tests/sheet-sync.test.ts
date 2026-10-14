@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOrders, parseSheet, stageFor, drcLabel, parseSheetDate, compare, receiveAction, colLetter, sheetText, type DrcRto, type Baseline } from '../src/lib/sheet-sync.ts';
+import { parseOrders, parseSheet, stageFor, drcLabel, drcCell, same, parseSheetDate, compare, receiveAction, colLetter, sheetText, type DrcRto, type Baseline } from '../src/lib/sheet-sync.ts';
 
 const NOW = Date.parse('2026-10-14T09:00:00Z');
 const istDay = (iso: string) => new Date(Date.parse(iso) + 19_800_000).toISOString().slice(0, 10);
@@ -32,6 +32,26 @@ test('sheet words → status, and DRC labels read back the same', () => {
 	for (const s of ['to_call', 'reship', 'ready_stock', 'store_credit', 'hold', 'claim', 'closed'])
 		assert.equal(stageFor(drcLabel(s, s === 'reship' ? '2026-10-16' : null)), s, s);
 	assert.equal(drcLabel('reship', '2026-10-16'), 'Re-deliver 16 Oct');
+	// real sheet wording (14 Oct check)
+	assert.equal(stageFor("i don't want give refund to mee"), 'ready_stock');
+	assert.equal(stageFor('Don’t want'), 'ready_stock');
+	assert.equal(stageFor("She doesn't need that product"), 'ready_stock');
+	assert.equal(stageFor("mam said she didn't placed the order"), 'ready_stock');
+	assert.equal(stageFor('re-shipped'), 'reshipped');
+	assert.equal(stageFor('Done re-shipped 05.10.2026'), 'reshipped');
+	assert.equal(stageFor("didn't pick switch off"), 'to_call');
+	assert.equal(stageFor("didn't pick the call so sent a voice mail"), 'to_call');
+	assert.equal(stageFor('Ready stock — didn\'t pick'), 'ready_stock');
+	assert.equal(stageFor('Hold — didn\'t pick'), 'hold');
+	assert.equal(stageFor('Claim — re-shipped'), 'claim');
+	assert.ok(same('reshipped', 'closed') && same('reshipped', 'reship') && !same('reshipped', 'to_call'));
+	assert.ok(same('to_call', 'hold') && !same('hold', 'to_call'));
+	// DRC keeps the team's note when it writes its status
+	assert.equal(drcCell('ready_stock', null, "didn't pick"), "Ready stock — didn't pick");
+	assert.equal(drcCell('hold', null, "Ready stock — didn't pick"), "Hold — didn't pick");
+	assert.equal(drcCell('reship', '2026-10-20', 'Re-deliver 16 Oct — wants it Monday'), 'Re-deliver 20 Oct — wants it Monday');
+	assert.equal(drcCell('closed', null, ''), 'All received');
+	assert.equal(drcCell('claim', null, 'Claim'), 'Claim');
 });
 
 test('sheet dates', () => {
