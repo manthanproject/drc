@@ -154,11 +154,13 @@ export async function runSheetSync(apply: boolean): Promise<RunResult> {
 
 		// 3. DRC → sheet: new rows
 		if (plan.append.length) {
-			await sheetsApi().values.append({
+			// written straight below the last filled row: values.append would put them after the first "table" it finds,
+			// which is in the middle when the tab has a blank line
+			const start = sheet.lastRow + 1;
+			await sheetsApi().values.update({
 				spreadsheetId: RETURN_ORDERS_ID!,
-				range: `${R}!A1`,
+				range: `${R}!A${start}:${colLetter(sheet.cols.width - 1)}${start + plan.append.length - 1}`,
 				valueInputOption: 'RAW',
-				insertDataOption: 'INSERT_ROWS',
 				requestBody: { values: plan.append.map((a) => a.values) }
 			});
 			for (const a of plan.append)

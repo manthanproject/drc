@@ -71,6 +71,9 @@ test('header columns found by name; blank lines skipped', () => {
 	assert.equal(s.rows.length, 1);
 	assert.equal(s.rows[0].row, 3);
 	assert.throws(() => parseSheet([['Foo', 'Bar']]));
+	// a blank line in the middle does not end the tab: new rows go below the last filled row
+	const g = parseSheet([HEAD, ['', 'Dropy-1', '', '', 'x', '', ''], ['', '', '', '', '', '', ''], ['', 'Dropy-2', '', '', 'y', '', ''], ['', '', '']]);
+	assert.equal(g.lastRow, 4);
 });
 
 test('receive actions: prepaid Ready Stock needs a person, COD goes straight', () => {
@@ -105,7 +108,7 @@ test('compare: every case', () => {
 		R({ id: 'a8', order_no: '1008', stage: 'to_call', scanned_at: '2026-10-10T05:00:00Z' }),
 		R({ id: 'a9', order_no: '1009', stage: 'awaiting_receipt' }),
 		R({ id: 'a10', order_no: '1010', stage: 'in_flight' }),
-		R({ id: 'a11', order_no: '1011', stage: 'ready_stock', scanned_at: '2026-10-13T20:00:00Z', items: [{ title: 'Balm', sku: 'S9', qty: 2 }] }), // not in sheet → append
+		R({ id: 'a11', order_no: '1011', stage: 'ready_stock', scanned_at: '2026-10-13T20:00:00Z', items: [{ title: 'Balm', sku: 'S9', qty: 2 }, { title: 'Pay on Delivery', sku: null, qty: 1 }] }), // not in sheet → append
 		R({ id: 'a12', order_no: '1012', stage: 'awaiting_receipt' }), // not received, not in sheet → nothing
 		R({ id: 'a13', order_no: '1013', stage: 'closed', kind: 'customer_return', scanned_at: '2026-10-10T05:00:00Z' }) // returns are not synced
 	];

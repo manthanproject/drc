@@ -31,6 +31,14 @@ if (process.env.FAKE_RETURN_SHEET) {
 				save(rows);
 				return { data: {} };
 			},
+			update: async ({ range, requestBody }) => {
+				const rows = load();
+				const m = range.match(/!([A-Z]+)(\d+)/);
+				const r0 = +m[2] - 1, c0 = colIdx(m[1]);
+				requestBody.values.forEach((vals, i) => { while (rows.length <= r0 + i) rows.push([]); vals.forEach((v, j) => { rows[r0 + i][c0 + j] = v; }); });
+				save(rows);
+				return { data: {} };
+			},
 			append: async ({ requestBody }) => {
 				const rows = load();
 				rows.push(...requestBody.values);

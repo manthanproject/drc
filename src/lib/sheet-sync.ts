@@ -5,6 +5,8 @@
 //  • Both changed (or they disagree on the first run): listed for a person to decide. Never decided automatically.
 // "Last synced" (the baseline) is what both sides said at the previous sync, so DRC can tell who changed what.
 
+import { isDummyItem } from './claims.ts';
+
 export const TAB = 'Return Orders';
 
 // 'reshipped' = the sheet says it was already sent again (done), unlike 'reship' = still to be re-delivered
@@ -74,7 +76,7 @@ export function parseOrders(cell: string): string[] {
 	return out;
 }
 
-export function parseSheet(values: unknown[][]): { cols: Cols; rows: SheetRow[] } {
+export function parseSheet(values: unknown[][]): { cols: Cols; rows: SheetRow[]; lastRow: number } {
 	if (!values.length) throw new Error(`"${TAB}" tab is empty`);
 	const cols = findCols(values[0]);
 	const get = (r: unknown[], i: number) => (i >= 0 ? clean(r[i]) : '');
@@ -95,7 +97,10 @@ export function parseSheet(values: unknown[][]): { cols: Cols; rows: SheetRow[] 
 			orders: parseOrders(orderCell)
 		});
 	});
-	return { cols, rows };
+	// the last row with anything in it (new rows go right below it, never into a gap higher up)
+	let lastRow = values.length;
+	while (lastRow > 1 && !(values[lastRow - 1] ?? []).some((c) => clean(c))) lastRow--;
+	return { cols, rows, lastRow };
 }
 
 /** The sheet's words → a DRC status (same rules as the 4 Oct import). */
@@ -250,7 +255,7 @@ export type Plan = {
 	receive: { order: string; row: number; rtoId: string; stage: SheetStage; words: string; date: string | null; act: Receive }[];
 	append: { order: string; rtoId: string; stage: string; day: string; items: string; values: string[] }[];
 	write: { order: string; row: number; rtoId: string; stage: string; from: string; to: string; col: number }[];
-	decide: { order: string; row: number; rtoId: string; words: string; status: string; sheetStage: SheetStage; drcStage: string; why: string }[];
+	decide: { order: string; row: number; rtoId: string; words: string; status: string; items: string; sheetStage: SheetStage; drcStage: string; why: string }[];
 	onlySheet: { order: string; row: number; words: string; stage: SheetStage; date: string | null }[];
 	unreadable: { row: number; cell: string; why: string }[];
 	baseline: Baseline[]; // baseline rows to save for orders that are now in step (written after the actions)
@@ -263,7 +268,7 @@ const newest = (rs: DrcRto[]) =>
 const oldestWaiting = (rs: DrcRto[]) =>
 	[...rs].sort((a, b) => (a.rto_delivered_at ?? a.created_at ?? '').localeCompare(b.rto_delivered_at ?? b.created_at ?? ''))[0];
 
-export function compare(sheet: { cols: Cols; rows: SheetRow[] }, rtos: DrcRto[], baselines: Baseline[], now: number, istDay: (iso: string) => string): Plan {
+export function compare(sheet: { cols: Cols; rows: SheetRow[]; lastRow?: number }, rtos: DrcRto[], baselines: Baseline[], now: number, istDay: (iso: string) => string): Plan {
 	const plan: Plan = { same: [], receive: [], append: [], write: [], decide: [], onlySheet: [], unreadable: [], baseline: [] };
 	const byOrder = new Map<string, DrcRto[]>();
 	for (const r of rtos) if (r.order_no) byOrder.set(r.order_no, [...(byOrder.get(r.order_no) ?? []), r]);
@@ -299,7 +304,7 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[] }, rtos: DrcRto[],
 			if (b && b.sheet_text === text && !COURIER_STAGES.has(b.drc_stage)) {
 				const r = waiting[0];
 				if (b.state !== 'ignored' || b.drc_stage !== r.stage)
-					plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, sheetStage: mapped, drcStage: r.stage, why: 'DRC now says not received; the sheet still has the row' });
+					plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, items: s.items, sheetStage: mapped, drcStage: r.stage, why: 'DRC now says not received; the sheet still has the row' });
 				continue;
 			}
 			const r = oldestWaiting(waiting);
@@ -324,13 +329,13 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[] }, rtos: DrcRto[],
 				plan.write.push({ order, row: s.row, rtoId: r.id, stage: r.stage, from: s.rtoStatus, to: drcCell(r.stage, r.reship_date, s.rtoStatus), col: sheet.cols.rtoStatus });
 				continue;
 			}
-			plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, sheetStage: mapped, drcStage: r.stage, why: drcChanged ? 'Changed in both since the last sync' : 'The sheet was changed' });
+			plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, items: s.items, sheetStage: mapped, drcStage: r.stage, why: drcChanged ? 'Changed in both since the last sync' : 'The sheet was changed' });
 			continue;
 		}
 		if (ok) {
 			plan.same.push({ order, row: s.row, stage: r.stage });
 			plan.baseline.push({ order_no: order, sheet_text: text, drc_stage: r.stage, state: 'ok' });
-		} else plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, sheetStage: mapped, drcStage: r.stage, why: 'Different on the first check' });
+		} else plan.decide.push({ order, row: s.row, rtoId: r.id, words: s.rtoStatus, status: s.status, items: s.items, sheetStage: mapped, drcStage: r.stage, why: 'Different on the first check' });
 	}
 
 	// DRC → sheet: received / claimed parcels whose order the sheet does not mention at all
@@ -340,7 +345,7 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[] }, rtos: DrcRto[],
 		if (!tracked.length) continue;
 		const r = newest(tracked);
 		const day = r.received_on ?? istDay(r.scanned_at ?? r.rto_delivered_at ?? new Date(now).toISOString());
-		const items = (r.items ?? []).filter((i) => i.title);
+		const items = (r.items ?? []).filter((i) => i.title && !isDummyItem(i)); // not the "Pay on Delivery" fee line
 		const values = new Array(sheet.cols.width).fill('');
 		const put = (i: number, v: string) => {
 			if (i >= 0) values[i] = v;

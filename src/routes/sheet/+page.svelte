@@ -88,7 +88,7 @@
 						<div class="row">
 							<div class="what">
 								<b>#{d.order}</b> <span class="small muted">row {d.row} · {d.why}</span>
-								<div class="vs"><span class="small">Sheet: <b>"{d.words || '—'}"</b>{#if d.status} · Status "{d.status}"{/if} <span class="muted">(reads as {stageLabel(d.sheetStage)})</span></span><span class="small">DRC: <span class="pill p-{tone(d.drcStage)}">{stageLabel(d.drcStage)}</span></span></div>
+								<div class="vs"><span class="small">Sheet: <b>"{d.words || '—'}"</b>{#if d.status} · Status "{d.status}"{/if}{#if d.items && /claim/i.test(d.items)} · Items "{d.items.slice(0, 60)}"{/if} <span class="muted">(reads as {stageLabel(d.sheetStage)})</span></span><span class="small">DRC: <span class="pill p-{tone(d.drcStage)}">{stageLabel(d.drcStage)}</span></span></div>
 							</div>
 							<div class="btns">
 								{#if !['in_flight', 'delayed', 'lost', 'awaiting_receipt'].includes(d.drcStage)}<button class="go sm accb" disabled={!!busy} onclick={() => post({ op: 'use_drc', order: d.order }, d.order)}>Use DRC</button>{/if}
