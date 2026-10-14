@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { requireUser, SESSION_COOKIE } from '#lib/server/session.ts';
 import { runSheetSync, setAuto, decide } from '#lib/server/sheet-sync.ts';
+import { ORDER_RE } from '#lib/sheet-sync.ts';
 import type { RequestHandler } from './$types';
 
 export const config = { maxDuration: 60 };
@@ -21,7 +22,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	}
 	if (op === 'use_drc' || op === 'ignore' || op === 'add') {
 		const order = String(b?.order ?? '').trim();
-		if (!/^\d{3,6}(-\d{1,2})?$/.test(order)) error(400, 'Bad order number');
+		if (!ORDER_RE.test(order)) error(400, 'Bad order number');
 		try {
 			return json({ ok: true, message: await decide(op, order) });
 		} catch (e) {

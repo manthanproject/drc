@@ -65,13 +65,16 @@ export function findCols(header: unknown[]): Cols {
 	return c;
 }
 
+/** A Dropy order number as the sheet and DRC write it: 4915, 1381-1, 1642-1-1 (re-ship of a re-ship). */
+export const ORDER_RE = /^\d{3,6}(-\d{1,2}){0,3}$/;
+
 /** Order numbers in a cell: "Dropy-4915", "#Dropy-1381-1", "Dropy-1093, 1073", "dropy 2502-ALL". */
 export function parseOrders(cell: string): string[] {
 	const out: string[] = [];
 	for (const raw of clean(cell).split(/[,&/;\n|]|\band\b/i)) {
 		let t = raw.trim().replace(/^#/, '').replace(/^dropy[\s-]*/i, '').replace(/[\s.]+$/, '');
 		t = t.replace(/-(all|[a-z])$/i, '');
-		if (/^\d{3,6}(-\d{1,2})?$/.test(t) && !out.includes(t)) out.push(t);
+		if (ORDER_RE.test(t) && !out.includes(t)) out.push(t);
 	}
 	return out;
 }
@@ -341,6 +344,9 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[]; lastRow?: number 
 	// DRC → sheet: received / claimed parcels whose order the sheet does not mention at all
 	for (const [order, rs] of byOrder) {
 		if (mentioned.has(order)) continue;
+		// only Dropy order numbers the sheet can read back ("Krishna 1005", Shiprocket ids like 8247623497 stay out),
+		// otherwise the row would be added again on every sync
+		if (!parseOrders(`Dropy-${order}`).includes(order)) continue;
 		const tracked = rs.filter((r) => isTracked(r) && r.legacy_source !== 'sheet');
 		if (!tracked.length) continue;
 		const r = newest(tracked);

@@ -14,6 +14,8 @@ test('order numbers in a cell', () => {
 	assert.deepEqual(parseOrders('dropy 2502'), ['2502']);
 	assert.deepEqual(parseOrders('4841'), ['4841']);
 	assert.deepEqual(parseOrders('RTO claim'), []);
+	assert.deepEqual(parseOrders('Dropy-1642-1-1'), ['1642-1-1']);
+	assert.deepEqual(parseOrders('8247623497'), []);
 	assert.deepEqual(parseOrders(''), []);
 });
 
@@ -110,6 +112,8 @@ test('compare: every case', () => {
 		R({ id: 'a10', order_no: '1010', stage: 'in_flight' }),
 		R({ id: 'a11', order_no: '1011', stage: 'ready_stock', scanned_at: '2026-10-13T20:00:00Z', items: [{ title: 'Balm', sku: 'S9', qty: 2 }, { title: 'Pay on Delivery', sku: null, qty: 1 }] }), // not in sheet → append
 		R({ id: 'a12', order_no: '1012', stage: 'awaiting_receipt' }), // not received, not in sheet → nothing
+		R({ id: 'a14', order_no: '8247623497', stage: 'closed', scanned_at: '2026-10-10T05:00:00Z' }), // not a Dropy number → never added
+		R({ id: 'a15', order_no: 'Krishna 1005', stage: 'hold', scanned_at: '2026-10-10T05:00:00Z' }),
 		R({ id: 'a13', order_no: '1013', stage: 'closed', kind: 'customer_return', scanned_at: '2026-10-10T05:00:00Z' }) // returns are not synced
 	];
 	const base: Baseline[] = [
