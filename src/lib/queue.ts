@@ -60,7 +60,7 @@ export function windowNote(deadline: number | null, now: number): string {
 export function buildQueue(
 	rtos: (Rto & { scanned_at?: string | null })[],
 	claims: QueueClaim[],
-	mediaCount: Record<string, number>,
+	mediaCount: Record<string, number | { have: number; need: number }>, // a plain number = old 4-piece evidence
 	rules: Rules,
 	now: number
 ): Queue {
@@ -76,12 +76,13 @@ export function buildQueue(
 		const deadline = ms(c.deadline_at);
 		const amount = num(c.claimed_amount) || num(r.order_value);
 		if (c.status === 'draft') {
-			const m = mediaCount[r.id] ?? 0;
-			const needsMedia = c.reason !== 'mdnd' && m < 4;
+			const mc = mediaCount[r.id];
+			const m = typeof mc === 'number' ? { have: mc, need: 4 } : (mc ?? { have: 0, need: 2 });
+			const needsMedia = c.reason !== 'mdnd' && m.have < m.need;
 			toRaise.push({
 				key: `c-${c.id}`, kind: 'draft', rtoId: r.id, claimId: c.id, label: orderLabel(r), amount, deadline, raisedAt: null,
 				sub: `${claimReasonLabel(c.reason)} · ${windowNote(deadline, now)}`,
-				pill: needsMedia ? { label: `Media ${m} of 4`, tone: 'warn' } : { label: 'Ready', tone: 'ok' }
+				pill: needsMedia ? { label: `Media ${m.have} of ${m.need}`, tone: 'warn' } : { label: 'Ready', tone: 'ok' }
 			});
 		} else if (OPEN.has(c.status)) {
 			const ticket = c.channel === 'support_ticket';

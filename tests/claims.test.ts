@@ -28,7 +28,7 @@ test('remarks: order, AWB, delivered date, finding, items, links, value', () => 
 		'Affected items: Cream A (qty 1); Serum B (qty 2).',
 		'Pre-dispatch packing video with label: https://p',
 		'Unboxing video showing all sides and the label: https://u',
-		'All photos (front, back, label) and videos: https://f',
+		'Photo collage (label, front, back and all 4 sides) and videos: https://f',
 		'Claim value ₹3,100 (full order value). Please approve and issue a credit note.'
 	].join('\n'));
 	assert.ok(!/costech/i.test(t));
@@ -40,7 +40,7 @@ test('remarks: no courier date → scan date; missing links dropped; suffix orde
 	assert.match(t, /#Dropy-1642-1 \(AWB X1\) was received back at our warehouse on 6 Oct 2026\. On opening it, the product had leaked/);
 	assert.match(t, /^Affected item: Toner \(qty 1\)\.$/m);
 	assert.ok(!t.includes('packing video'));
-	assert.ok(!t.includes('All photos'));
+	assert.ok(!t.includes('Photo collage'));
 });
 
 test('Pay on Delivery dummy line is not a product', () => {
@@ -102,4 +102,12 @@ test('bulk same-minute evidence: 3+ same courier in one minute, none received', 
 	assert.equal(bulkSameMinute(t, [t, others[0]]), null, 'only 2: not convincing');
 	assert.equal(bulkSameMinute(t, [t, others[0], { ...others[1], scanned_at: '2026-10-01T05:00:00Z' }]), null, 'one of them arrived: skip');
 	assert.equal(bulkSameMinute({ ...t, rto_delivered_at: null }, others), null);
+});
+
+test('evidence progress: new collage claims and old photo claims', async () => {
+	const { evidenceProgress } = await import('../src/lib/claims.ts');
+	assert.deepEqual(evidenceProgress([]), { have: 0, need: 2 });
+	assert.deepEqual(evidenceProgress(['unboxing_video', 'collage']), { have: 2, need: 2 });
+	assert.deepEqual(evidenceProgress(['unboxing_video', 'front', 'back']), { have: 3, need: 4 });
+	assert.deepEqual(evidenceProgress(['unboxing_video', 'front', 'back', 'label', 'packing_shortcut']), { have: 4, need: 4 });
 });

@@ -1,7 +1,7 @@
 import { db } from './supabase.ts';
 import { allRtos, settings } from './rto-data.ts';
 import { buildQueue, type QueueClaim } from '#lib/queue.ts';
-import { EVIDENCE } from '#lib/claims.ts';
+import { evidenceProgress } from '#lib/claims.ts';
 import { buildTickets } from '#lib/tickets.ts';
 import type { Rto } from '#lib/dashboard.ts';
 
@@ -39,8 +39,8 @@ export async function loadQueue() {
 		if (m.error) throw new Error(`rto_media: ${m.error.message}`);
 		media = m.data ?? [];
 	}
-	const counts: Record<string, number> = {};
-	for (const id of ids) counts[id] = new Set(media.filter((x) => x.rto_id === id && EVIDENCE.some((e) => e.kind === x.kind)).map((x) => x.kind)).size;
+	const counts: Record<string, { have: number; need: number }> = {};
+	for (const id of ids) counts[id] = evidenceProgress(media.filter((x) => x.rto_id === id).map((x) => x.kind));
 
 	const now = Date.now();
 	const queue = buildQueue(rtos, claims, counts, s.rules, now);

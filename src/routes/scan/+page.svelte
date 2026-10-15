@@ -56,7 +56,11 @@
 
 	async function open(id: string) {
 		packing = null;
-		if (page.state.card !== id) pushState('', { card: id }); // phone back closes this card instead of leaving Scan
+		// phone back closes this card instead of leaving Scan: one history entry while a card is open
+		if (!cardEntry) {
+			pushState('', { card: id });
+			cardEntry = true;
+		} else replaceState('', { card: id });
 		const r = await fetch(`/api/rto/${id}/detail`);
 		if (!r.ok) {
 			findErr = 'Could not open this RTO.';
@@ -71,16 +75,25 @@
 		detail = null;
 		matches = null;
 		code = '';
-		if (page.state.card) history.back();
+		if (cardEntry) {
+			cardEntry = false;
+			history.back();
+		}
 	}
 
-	// Phone / browser back while a card is open → close the card, stay on Scan
-	$effect(() => {
-		if (!page.state.card && detail) {
+	// Phone / browser back while a card is open → close the card, stay on Scan. Only a real back press counts:
+	// a data refresh (e.g. when the Undo bar ends) also empties page.state and must not close the next parcel's card.
+	let cardEntry = false;
+	onMount(() => {
+		const onPop = () => {
+			if (!cardEntry) return;
+			cardEntry = false;
 			detail = null;
 			matches = null;
 			code = '';
-		}
+		};
+		addEventListener('popstate', onPop);
+		return () => removeEventListener('popstate', onPop);
 	});
 
 	function saved(res: { event_id: number; label: string }) {

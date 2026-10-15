@@ -58,14 +58,34 @@ export const claimStatus = (s: string | null | undefined) => {
 };
 
 // ---------- evidence ----------
-export type MediaKind = 'unboxing_video' | 'front' | 'back' | 'label';
-export const EVIDENCE: { kind: MediaKind; label: string; video: boolean }[] = [
+// Since 15 Oct 2026 a claim needs the unboxing video + ONE photo collage (label, front, back, 4 sides, stamped).
+// Older claims have separate front / back / label photos: still valid, still shown.
+export type MediaKind = 'unboxing_video' | 'collage' | 'front' | 'back' | 'label';
+export const EVIDENCE: { kind: 'unboxing_video' | 'collage'; label: string; video: boolean }[] = [
 	{ kind: 'unboxing_video', label: 'Unboxing video, all sides', video: true },
-	{ kind: 'front', label: 'Front photo', video: false },
-	{ kind: 'back', label: 'Back photo', video: false },
-	{ kind: 'label', label: 'Label photo', video: false }
+	{ kind: 'collage', label: 'Photo collage: label, front, back, 4 sides', video: false }
 ];
-export const isMediaKind = (k: unknown): k is MediaKind => EVIDENCE.some((e) => e.kind === k);
+const ALL_KINDS: MediaKind[] = ['unboxing_video', 'collage', 'front', 'back', 'label'];
+export const isMediaKind = (k: unknown): k is MediaKind => ALL_KINDS.includes(k as MediaKind);
+
+/** The 7 shots in the collage, in order. The label shot must show the AWB readably. */
+export const COLLAGE_SHOTS = [
+	{ key: 'label', label: 'Label (AWB readable)' },
+	{ key: 'front', label: 'Front' },
+	{ key: 'back', label: 'Back' },
+	{ key: 'left', label: 'Left side' },
+	{ key: 'right', label: 'Right side' },
+	{ key: 'top', label: 'Top' },
+	{ key: 'bottom', label: 'Bottom' }
+] as const;
+
+/** How much of a claim's evidence is there: video + collage (new), or video + front + back + label (before 15 Oct). */
+export function evidenceProgress(kinds: Iterable<string>): { have: number; need: number } {
+	const k = new Set(kinds);
+	if (!k.has('collage') && ['front', 'back', 'label'].some((x) => k.has(x)))
+		return { have: ['unboxing_video', 'front', 'back', 'label'].filter((x) => k.has(x)).length, need: 4 };
+	return { have: ['unboxing_video', 'collage'].filter((x) => k.has(x)).length, need: 2 };
+}
 
 export const driveFileUrl = (id: string) => `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`;
 export const driveFolderUrl = (id: string) => `https://drive.google.com/drive/folders/${encodeURIComponent(id)}`;
@@ -137,7 +157,7 @@ export function claimRemarks(x: RemarksInput): string {
 		list ? `${x.items.length > 1 ? 'Affected items' : 'Affected item'}: ${list}.` : '',
 		x.links.packing ? `Pre-dispatch packing video with label: ${x.links.packing}` : '',
 		x.links.unboxing ? `Unboxing video showing all sides and the label: ${x.links.unboxing}` : '',
-		x.links.folder ? `All photos (front, back, label) and videos: ${x.links.folder}` : '',
+		x.links.folder ? `Photo collage (label, front, back and all 4 sides) and videos: ${x.links.folder}` : '',
 		`Claim value ₹${inrFmt.format(Number.isFinite(value) ? Math.round(value) : 0)} (full order value). Please approve and issue a credit note.`
 	];
 	return lines.filter(Boolean).join('\n');

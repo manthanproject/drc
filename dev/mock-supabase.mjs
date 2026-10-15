@@ -196,7 +196,8 @@ function mockClaim({ p_rto, p_args: a }) {
 	if (!r.courier) return [400, { message: 'DRC_NO_COURIER' }];
 	if (!COND[a.reason]) return [400, { message: 'DRC_BAD_REASON' }];
 	if (claims.some((c) => c.rto_id === r.id && !['closed', 'rejected'].includes(c.status))) return [400, { message: 'DRC_CLAIM_EXISTS' }];
-	const miss = ['unboxing_video', 'front', 'back', 'label'].filter((k) => !a.media.some((m) => m.kind === k && m.drive_file_id));
+	const old = a.media.some((m) => ['front', 'back', 'label'].includes(m.kind));
+	const miss = (old ? ['unboxing_video', 'front', 'back', 'label'] : ['unboxing_video', 'collage']).filter((k) => !a.media.some((m) => m.kind === k && m.drive_file_id));
 	if (miss.length) return [400, { message: `DRC_MEDIA_REQUIRED ${miss}` }];
 	const before = { stage: r.stage, scanned_at: r.scanned_at, refund_state: r.refund_state, callback_attempts: r.callback_attempts, reship_state: r.reship_state, notes: r.notes, media_state: r.media_state ?? 'none', media_folder_id: r.media_folder_id ?? null };
 	const itemsBefore = rtoItems.filter((i) => a.items.includes(i.id) || a.restock.includes(i.id)).map((i) => ({ id: i.id, condition: i.condition ?? 'pending', ready_stock_state: i.ready_stock_state }));

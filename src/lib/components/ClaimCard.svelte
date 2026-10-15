@@ -44,7 +44,7 @@
 	const isRet = $derived(rto?.kind === 'customer_return');
 	const ticket = $derived(claim.channel === 'support_ticket' && !isRet);
 	const byKind = (k: string) => media.find((m) => m.kind === k);
-	const photos = $derived(['front', 'back', 'label'].map((k) => [k, byKind(k)] as const).filter(([, m]) => !!m));
+	const photos = $derived(['collage', 'front', 'back', 'label'].map((k) => [k, byKind(k)] as const).filter(([, m]) => !!m));
 	const orderName = $derived(/^\d+(-\d+)*$/.test(orderNo ?? '') ? `#Dropy-${orderNo}` : orderNo ?? '');
 
 	async function copy(value: string, what: 'type' | 'text') {
@@ -166,7 +166,7 @@
 					<b>Attach the evidence</b>
 					<div class="files">
 						{#if folderId}<div><span>Claim folder in Drive<small class="muted">anyone with the link can view</small></span><a href={driveFolderUrl(folderId)} target="_blank" rel="noopener noreferrer">Open folder</a></div>{/if}
-						{#if photos.length}<div><span>Front, back, label photos<small class="muted">download to attach</small></span><span class="links">{#each photos as [k, m] (k)}<a href={driveFileUrl(m!.drive_file_id)} target="_blank" rel="noopener noreferrer">{k}</a>{/each}</span></div>{/if}
+						{#if photos.length}<div><span>{photos.some(([k]) => k === 'collage') ? 'Photo collage' : 'Front, back, label photos'}<small class="muted">download to attach</small></span><span class="links">{#each photos as [k, m] (k)}<a href={driveFileUrl(m!.drive_file_id)} target="_blank" rel="noopener noreferrer">{k}</a>{/each}</span></div>{/if}
 						{#if byKind('unboxing_video')}<div><span>Unboxing video<small class="muted">link is in the remarks</small></span><a href={driveFileUrl(byKind('unboxing_video')!.drive_file_id)} target="_blank" rel="noopener noreferrer">Open</a></div>{/if}
 						{#if packingUrl}<div><span>Packing video<small class="muted">from DROPPY-Log{byKind('packing_shortcut') ? ', shortcut in the folder' : ''}</small></span><a href={packingUrl} target="_blank" rel="noopener noreferrer">Open</a></div>{/if}
 						{#if !folderId && !media.length}<span class="small muted">No media recorded in DRC for this claim.</span>{/if}

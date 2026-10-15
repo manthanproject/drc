@@ -4,8 +4,8 @@
 	import { page } from '$app/state';
 	import BottomNav from '#lib/components/BottomNav.svelte';
 	import VideoRecorder from '#lib/components/VideoRecorder.svelte';
-	import PhotoCamera from '#lib/components/PhotoCamera.svelte';
-	import { REASONS, EVIDENCE, velocityDisputeType, reasonOf, claimReasonLabel, claimStatus, type ReasonKey, type MediaKind } from '#lib/claims.ts';
+	import CollageCapture from '#lib/components/CollageCapture.svelte';
+	import { REASONS, EVIDENCE, COLLAGE_SHOTS, velocityDisputeType, reasonOf, claimReasonLabel, claimStatus, type ReasonKey } from '#lib/claims.ts';
 	import { claimReturn, withUndo } from '#lib/scan.ts';
 	import { asinOf } from '#lib/products.ts';
 	import { inr, num, orderLabel, paymentBreakdown } from '#lib/dashboard.ts';
@@ -25,9 +25,12 @@
 	let ticked = $state<string[]>([]);
 	let restockOthers = $state(true);
 	let note = $state('');
-	let media = $state<Record<MediaKind, Up>>({ unboxing_video: idle(), front: idle(), back: idle(), label: idle() });
+	type Kind = (typeof EVIDENCE)[number]['kind'];
+	let media = $state<Record<Kind, Up>>({ unboxing_video: idle(), collage: idle() });
 	let recorder = $state(false);
-	let camera = $state<MediaKind | null>(null);
+	let collageOpen = $state(false);
+	let shots = $state<(File | null)[]>(COLLAGE_SHOTS.map(() => null));
+	const stamp = $derived({ order: orderLabel(r).replace(/^#/, 'Dropy-'), awb: r.forward_awb ?? null, courier: r.carrier_name ?? null, what: `${r.kind === 'customer_return' ? 'Return' : 'RTO'} claim evidence` });
 	let saving = $state(false);
 	let err = $state('');
 	let restored = $state(false);
@@ -37,7 +40,7 @@
 	const doneCount = $derived(EVIDENCE.filter((e) => media[e.kind].state === 'done').length);
 	const uploading = $derived(EVIDENCE.some((e) => media[e.kind].state === 'uploading'));
 	const blocker = $derived(
-		!reason ? 'Pick a reason' : items.length && !ticked.length ? 'Tick the item(s) with the problem' : uploading ? 'Uploading…' : doneCount < 4 ? `Record ${4 - doneCount} more to save the claim` : null
+		!reason ? 'Pick a reason' : items.length && !ticked.length ? 'Tick the item(s) with the problem' : uploading ? 'Uploading…' : doneCount < EVIDENCE.length ? (media.unboxing_video.state !== 'done' ? 'Record the unboxing video' : 'Make the photo collage') : null
 	);
 	const vType = $derived(reason ? velocityDisputeType(reasonOf(reason)!.claimReason) : null);
 
@@ -98,7 +101,7 @@
 		});
 	}
 
-	async function upload(kind: MediaKind, file: File) {
+	async function upload(kind: Kind, file: File) {
 		const type = file.type || (kind === 'unboxing_video' ? 'video/mp4' : 'image/jpeg');
 		const old = media[kind].preview;
 		if (old) URL.revokeObjectURL(old);
@@ -124,7 +127,7 @@
 
 	let sessions: Promise<unknown> = Promise.resolve();
 
-	function picked(kind: MediaKind, e: Event) {
+	function picked(kind: Kind, e: Event) {
 		const el = e.currentTarget as HTMLInputElement;
 		const f = el.files?.[0];
 		el.value = '';
@@ -236,7 +239,7 @@
 
 				<div class="col">
 					<section class="card">
-						<div class="h2row"><h2>3. Evidence</h2><span class="pill {doneCount === 4 ? 'p-ok' : 'p-bad'}">Required · {doneCount} of 4</span></div>
+						<div class="h2row"><h2>3. Evidence</h2><span class="pill {doneCount === EVIDENCE.length ? 'p-ok' : 'p-bad'}">Required · {doneCount} of {EVIDENCE.length}</span></div>
 						<p class="small muted sub">Goes straight from the phone to the claim folder in Drive.</p>
 						{#each EVIDENCE as e (e.kind)}
 							{@const m = media[e.kind]}
@@ -260,10 +263,8 @@
 										<input class="hide" type="file" accept="video/*" bind:this={inputs.videoFile} onchange={(ev) => picked('unboxing_video', ev)} />
 									{:else}
 										{#if m.state !== 'uploading'}
-											<button type="button" class="act" class:redo={m.state === 'done'} onclick={() => (camera = e.kind)}>{m.state === 'done' ? 'Retake' : 'Take'}</button>
+											<button type="button" class="act" class:redo={m.state === 'done'} onclick={() => (collageOpen = true)}>{m.state === 'done' ? 'Redo' : shots.some(Boolean) ? `${shots.filter(Boolean).length} of 7` : 'Take 7'}</button>
 										{/if}
-										<input class="hide" type="file" accept="image/*" capture="environment" bind:this={inputs[e.kind]} onchange={(ev) => picked(e.kind, ev)} />
-										<input class="hide" type="file" accept="image/*" bind:this={inputs[e.kind + 'File']} onchange={(ev) => picked(e.kind, ev)} />
 									{/if}
 								</span>
 							</div>
@@ -273,8 +274,7 @@
 										<button type="button" class="link" onclick={() => inputs.video?.click()}>Camera app</button>
 										<button type="button" class="link" onclick={() => inputs.videoFile?.click()}>Choose file</button>
 									{:else}
-										<button type="button" class="link" onclick={() => inputs[e.kind]?.click()}>Camera app</button>
-										<button type="button" class="link" onclick={() => inputs[e.kind + 'File']?.click()}>Choose file</button>
+										<span class="small muted">Label · front · back · 4 sides → 1 image</span>
 									{/if}
 								</div>
 							{/if}
@@ -301,14 +301,14 @@
 </div>
 <BottomNav active={backHref.startsWith('/scan') ? 'scan' : 'all'} />
 
-{#if camera}
-	<PhotoCamera
-		label={EVIDENCE.find((x) => x.kind === camera)?.label ?? 'Photo'}
-		onclose={() => (camera = null)}
+{#if collageOpen}
+	<CollageCapture
+		bind:shots
+		{stamp}
+		onclose={() => (collageOpen = false)}
 		onfile={(f) => {
-			const k = camera!;
-			camera = null;
-			upload(k, f);
+			collageOpen = false;
+			upload('collage', f);
 		}}
 	/>
 {/if}
