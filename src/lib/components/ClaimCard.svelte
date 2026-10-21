@@ -83,6 +83,13 @@
 		const b = await post({ action: 'raise', ticket_ref: ref, description: text });
 		if (b?.event_id) onraised(b.event_id);
 	}
+	// A draft was never sent to the courier, so it can simply be discarded (Undo works for 10 minutes)
+	const COURIER_STAGES = new Set(['in_flight', 'delayed', 'lost', 'awaiting_receipt', 'unknown_parcel']);
+	const staleMdnd = $derived(draft && claim.reason === 'mdnd' && !!rto?.stage && !COURIER_STAGES.has(rto.stage));
+	async function discard() {
+		const b = await post({ action: 'withdraw', note: staleMdnd ? 'parcel arrived, not-received draft no longer applies' : 'draft not needed' });
+		if (b?.event_id) onchanged?.(b.event_id, 'Draft claim discarded');
+	}
 </script>
 
 {#if ticket}
@@ -120,6 +127,13 @@
 		{:else}Made {dateShort(claim.created_at)}{claim.deadline_at ? ` · window to ${dateShort(claim.deadline_at)}` : ''}{/if}
 	</p>
 	{#if claim.status === 'closed' && claim.close_result}<p class="small muted meta">Closed: {CLOSED[claim.close_result] ?? claim.close_result}{claim.closed_at ? `, ${dateShort(claim.closed_at)}` : ''}</p>{/if}
+	{#if staleMdnd && onchanged}
+		<div class="stale" role="status">
+			<b>This parcel has arrived.</b> A "not received" (MDND) claim no longer applies.
+			Discard this draft, then use <b>RTO claim</b> for damage, a wrong or missing item.
+			<button class="go badb" disabled={busy} onclick={discard}>Discard this draft</button>
+		</div>
+	{/if}
 	{#if showFollow}<FollowUpPanel {claim} rto={rto!} {followHours} {packingUrl} ondone={onchanged!} />{/if}
 
 	<details open={draft}>
@@ -183,6 +197,7 @@
 							<input id="ref-{claim.id}" bind:value={ref} maxlength="80" placeholder="Ticket no. (optional)" />
 							<button class="go accb" disabled={busy} onclick={raise}>✓ Mark raised</button>
 						</div>
+						{#if onchanged && !staleMdnd}<button class="lnk" disabled={busy} onclick={discard}>Not needed? Discard this draft</button>{/if}
 					</div>
 				</li>
 			{/if}
@@ -208,6 +223,10 @@
 	.go:disabled { opacity: 0.55; cursor: default; }
 	.dark { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 	.accb { background: var(--acc); border-color: var(--acc); color: #fff; }
+	.badb { background: var(--bad); border-color: var(--bad); color: #fff; align-self: flex-start; }
+	.stale { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 8px; padding: 12px; border-radius: 12px; background: var(--bad-soft); font-size: 13.5px; line-height: 1.45; }
+	.lnk { align-self: flex-start; background: none; border: 0; padding: 2px 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+	.lnk:disabled { opacity: 0.55; cursor: default; }
 	.vt { padding: 9px 12px; border-radius: 12px; background: var(--sunk); font-weight: 700; }
 	textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 10px 12px; font-size: 13.5px; line-height: 1.5; resize: vertical; }
 	.files { display: flex; flex-direction: column; }

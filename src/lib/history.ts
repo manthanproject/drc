@@ -50,7 +50,7 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 				text = `Followed up (${nth} time)${p.args?.ticket_ref ? ` on ticket ${p.args.ticket_ref}` : ''}`;
 			}
 			if (p.action === 'claim_escalated') text = `Rejected dispute escalated${p.args?.ticket_ref ? ` (ticket ${p.args.ticket_ref})` : ''}`;
-			if (p.action === 'claim_withdrawn') text = 'Claim withdrawn';
+			if (p.action === 'claim_withdrawn') text = p.claim?.claim_before?.status === 'draft' ? 'Draft claim discarded' : 'Claim withdrawn';
 			if (p.action === 'claim_approved') text = `Claim approved${p.args?.amount ? ` (${inr(Number(p.args.amount))})` : ''}`;
 			if (p.action === 'claim_credited')
 				text = `Credit ${p.args?.ticket_ref ?? ''} ${rupees(Number(p.args?.amount ?? 0))} received, ${p.args?.created ? 'claim created from the credit note and closed' : 'claim closed'}${p.args?.result === 'short_paid_accepted' ? ' (short-paid)' : ''}`;

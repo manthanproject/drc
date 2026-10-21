@@ -79,6 +79,7 @@ export interface TextRto {
 	rto_delivered_at?: string | null;
 	disputes?: Rto['disputes'];
 	kind?: string | null; // 'customer_return': the claim is a Velocity support ticket, not a panel dispute
+	stage?: string | null; // to warn when a 'not received' draft sits on a parcel that has since arrived
 }
 
 const inrFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });

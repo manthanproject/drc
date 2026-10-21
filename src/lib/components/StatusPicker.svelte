@@ -117,7 +117,7 @@
 	</div>
 
 	{#if claimInfo}
-		<div class="panel note">This RTO already has an open claim, or has no courier to claim against. See the claim card on the RTO page.</div>
+		<div class="panel note">This RTO already has an open claim (see the claim card on this page: a draft can be discarded there), or it is an old-sheet RTO with no courier to claim against.</div>
 	{/if}
 
 	{#if open === 'received'}

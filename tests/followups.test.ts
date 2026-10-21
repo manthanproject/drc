@@ -87,6 +87,7 @@ test('history wording for follow-ups', () => {
 	assert.equal(say(ev({ action: 'claim_follow_up', args: { n: 1 } })).text, 'Followed up (1st time)');
 	assert.equal(say(ev({ action: 'claim_escalated', args: { ticket_ref: '#107001' } })).text, 'Rejected dispute escalated (ticket #107001)');
 	assert.equal(say(ev({ action: 'claim_withdrawn', args: { note: 'parcel arrived' } })).text, 'Claim withdrawn — parcel arrived');
+	assert.equal(say(ev({ action: 'claim_withdrawn', claim: { claim_before: { status: 'draft' } }, args: { note: 'draft not needed' } })).text, 'Draft claim discarded — draft not needed');
 	assert.equal(say(ev({ action: 'claim_approved', args: { amount: 1500 } })).text, 'Claim approved (₹1,500)');
 	assert.equal(say(ev({ action: 'claim_credited', args: { ticket_ref: 'VSF/FN/1026/096', amount: 1728, result: 'short_paid_accepted' } })).text,
 		'Credit VSF/FN/1026/096 ₹1,728 received, claim closed (short-paid)');
