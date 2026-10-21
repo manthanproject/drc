@@ -6,7 +6,7 @@ import { buildTickets } from '#lib/tickets.ts';
 import type { Rto } from '#lib/dashboard.ts';
 
 const CLAIM_COLS =
-	'id, rto_id, reason, status, channel, ticket_ref, ticket_url, claimed_amount, expected_amount, approved_amount, deadline_at, raised_at, approved_at, ' +
+	'id, rto_id, courier, reason, status, channel, ticket_ref, ticket_url, claimed_amount, expected_amount, approved_amount, deadline_at, raised_at, approved_at, ' +
 	'description, created_at, next_follow_up_at, follow_ups, last_follow_up_at, escalated_at';
 
 export interface PaneRto {

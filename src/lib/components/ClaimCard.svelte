@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { claimReasonLabel, claimStatus, velocityDisputeType, velocityOrderUrl, driveFileUrl, driveFolderUrl } from '#lib/claims.ts';
+	import { claimReasonLabel, claimStatus, velocityDisputeType, velocityOrderUrl, driveFileUrl, driveFolderUrl, shiprocketDispute, shiprocketDeadline, SHIPROCKET_APP } from '#lib/claims.ts';
 	import { dateShort, inr, num } from '#lib/dashboard.ts';
 	import { istTime } from '#lib/scanlog.ts';
 	import FollowUpPanel from './FollowUpPanel.svelte';
@@ -31,7 +31,7 @@
 	let ref = $state('');
 	let busy = $state(false);
 	let err = $state('');
-	let copied = $state<'' | 'type' | 'text'>('');
+	let copied = $state<'' | 'type' | 'text' | 'awb'>('');
 	$effect.pre(() => {
 		text = claim.description ?? '';
 		saved = claim.description ?? '';
@@ -43,11 +43,16 @@
 	// a customer return's claim is raised as a Velocity support ticket (panel disputes are for forward shipments only)
 	const isRet = $derived(rto?.kind === 'customer_return');
 	const ticket = $derived(claim.channel === 'support_ticket' && !isRet);
+	// Shiprocket parcels are disputed in Shiprocket (Orders → ⋯ → Raise Dispute), within 72 h of delivery back
+	const isSr = $derived(claim.courier === 'shiprocket' && !isRet);
+	const srType = $derived(shiprocketDispute(claim.reason));
+	const srDue = $derived(isSr ? shiprocketDeadline(rto?.rto_delivered_at) : null);
+	const srLate = $derived(!!srDue && Date.parse(srDue) < Date.now());
 	const byKind = (k: string) => media.find((m) => m.kind === k);
 	const photos = $derived(['collage', 'front', 'back', 'label'].map((k) => [k, byKind(k)] as const).filter(([, m]) => !!m));
 	const orderName = $derived(/^\d+(-\d+)*$/.test(orderNo ?? '') ? `#Dropy-${orderNo}` : orderNo ?? '');
 
-	async function copy(value: string, what: 'type' | 'text') {
+	async function copy(value: string, what: 'type' | 'text' | 'awb') {
 		try {
 			await navigator.clipboard.writeText(value);
 			copied = what;
@@ -124,8 +129,10 @@
 	<p class="small muted meta">
 		{inr(num(claim.claimed_amount))} (full order) ·
 		{#if claim.raised_at}Raised {dateShort(claim.raised_at)}, {istTime(claim.raised_at)}{claim.ticket_ref ? ` · ref ${claim.ticket_ref}` : ''}
+		{:else if isSr}Made {dateShort(claim.created_at)}{srDue ? ` · Shiprocket window to ${dateShort(srDue)}, ${istTime(srDue)}` : ''}
 		{:else}Made {dateShort(claim.created_at)}{claim.deadline_at ? ` · window to ${dateShort(claim.deadline_at)}` : ''}{/if}
 	</p>
+	{#if isSr && draft && srLate}<p class="small late">Shiprocket's 72-hour window has passed. Raise it anyway: their support can still accept it, and it is on record.</p>{/if}
 	{#if claim.status === 'closed' && claim.close_result}<p class="small muted meta">Closed: {CLOSED[claim.close_result] ?? claim.close_result}{claim.closed_at ? `, ${dateShort(claim.closed_at)}` : ''}</p>{/if}
 	{#if staleMdnd && onchanged}
 		<div class="stale" role="status">
@@ -137,12 +144,19 @@
 	{#if showFollow}<FollowUpPanel {claim} rto={rto!} {followHours} {packingUrl} ondone={onchanged!} />{/if}
 
 	<details open={draft}>
-		<summary class="small">{draft ? 'Raise it in Velocity' : 'Remarks and evidence'}</summary>
+		<summary class="small">{draft ? `Raise it in ${isSr ? 'Shiprocket' : 'Velocity'}` : 'Remarks and evidence'}</summary>
 		<ol class="steps">
 			<li>
 				<span class="n">1</span>
 				<div class="sb">
-					{#if isRet}
+					{#if isSr}
+						<b>Open the order in Shiprocket</b>
+						<div class="row">
+							<a class="go dark" href={SHIPROCKET_APP} target="_blank" rel="noopener noreferrer">Open Shiprocket ↗</a>
+							{#if rto?.forward_awb}<button class="go" onclick={() => copy(rto?.forward_awb ?? '', 'awb')}>{copied === 'awb' ? 'Copied ✓' : `Copy AWB ${rto.forward_awb}`}</button>{/if}
+						</div>
+						<span class="small muted">Orders → search the AWB → ⋯ More → Raise Dispute</span>
+					{:else if isRet}
 						<b>Open a Velocity support ticket</b>
 						<div class="row"><a class="go dark" href={FRESHDESK_NEW} target="_blank" rel="noopener noreferrer">Open Velocity support ↗</a><span class="small muted">AWBs: the return AWB · Ticket Type: Return</span></div>
 					{:else}
@@ -155,7 +169,13 @@
 				<span class="n">2</span>
 				<div class="sb">
 					<b>{isRet ? 'Say what was inside' : 'Choose this dispute type'}</b>
-					{#if isRet}
+					{#if isSr}
+						{#if srType}
+							<div class="row"><span class="vt">{srType.concern}</span></div>
+							{#if srType.pick}<span class="small">Then in the reason dropdown: <b>{srType.pick}</b></span>{:else}<span class="small muted">No proof upload needed for this one: submit it.</span>{/if}
+						{:else}<span class="small muted">No dispute option for this reason in Shiprocket: Help &amp; Support → new ticket.</span>{/if}
+						<span class="small muted">Shiprocket allows 2 disputes per shipment.</span>
+					{:else if isRet}
 						<span class="small muted">Velocity's dispute tab is for forward shipments only, so a return goes as a ticket. Start the description with: <b>{vType ?? 'Return problem'}</b></span>
 					{:else if vType}
 						<div class="row"><span class="vt">{vType}</span><button class="go" onclick={() => copy(vType, 'type')}>{copied === 'type' ? 'Copied ✓' : 'Copy'}</button></div>
@@ -178,6 +198,7 @@
 				<span class="n">4</span>
 				<div class="sb">
 					<b>Attach the evidence</b>
+					{#if isSr && srType?.pick}<span class="small muted">Shiprocket prefers images: upload the photo collage. The video links are already in the remarks.</span>{/if}
 					<div class="files">
 						{#if folderId}<div><span>Claim folder in Drive<small class="muted">anyone with the link can view</small></span><a href={driveFolderUrl(folderId)} target="_blank" rel="noopener noreferrer">Open folder</a></div>{/if}
 						{#if photos.length}<div><span>{photos.some(([k]) => k === 'collage') ? 'Photo collage' : 'Front, back, label photos'}<small class="muted">download to attach</small></span><span class="links">{#each photos as [k, m] (k)}<a href={driveFileUrl(m!.drive_file_id)} target="_blank" rel="noopener noreferrer">{k}</a>{/each}</span></div>{/if}
@@ -223,6 +244,7 @@
 	.go:disabled { opacity: 0.55; cursor: default; }
 	.dark { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 	.accb { background: var(--acc); border-color: var(--acc); color: #fff; }
+	.late { margin: 0 0 6px; color: var(--bad); font-weight: 600; }
 	.badb { background: var(--bad); border-color: var(--bad); color: #fff; align-self: flex-start; }
 	.stale { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 8px; padding: 12px; border-radius: 12px; background: var(--bad-soft); font-size: 13.5px; line-height: 1.45; }
 	.lnk { align-self: flex-start; background: none; border: 0; padding: 2px 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; }

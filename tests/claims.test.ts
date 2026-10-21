@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { describe as say } from '../src/lib/history.ts';
-import { REASONS, reasonOf, velocityDisputeType, claimRemarks, isDummyItem, mediaFileName, extOf, dateLong, claimStatus, mdndRemarks, bulkSameMinute, dateTimeLong } from '../src/lib/claims.ts';
+import { REASONS, reasonOf, velocityDisputeType, claimRemarks, isDummyItem, mediaFileName, extOf, dateLong, claimStatus, mdndRemarks, bulkSameMinute, dateTimeLong, shiprocketDispute, shiprocketDeadline } from '../src/lib/claims.ts';
 
 test('every reason maps to a Velocity dispute type (same mapping as create_rto_claim)', () => {
 	const want: Record<string, string> = { wrong: 'wrong_product', damaged: 'damaged', missing: 'missing_items', leak: 'damaged', empty: 'missing_items', near_expiry: 'wrong_product' };
@@ -110,4 +110,14 @@ test('evidence progress: new collage claims and old photo claims', async () => {
 	assert.deepEqual(evidenceProgress(['unboxing_video', 'collage']), { have: 2, need: 2 });
 	assert.deepEqual(evidenceProgress(['unboxing_video', 'front', 'back']), { have: 3, need: 4 });
 	assert.deepEqual(evidenceProgress(['unboxing_video', 'front', 'back', 'label', 'packing_shortcut']), { have: 4, need: 4 });
+});
+
+test('Shiprocket dispute option per reason + 72 h window', () => {
+	for (const r of REASONS) assert.ok(shiprocketDispute(r.claimReason), r.key);
+	assert.deepEqual(shiprocketDispute('mdnd'), { concern: 'Delivered not received', pick: null });
+	assert.equal(shiprocketDispute('damaged')?.pick, 'Damaged');
+	assert.equal(shiprocketDispute('wrong_product')?.concern, 'Wrong, partial, damaged or empty shipment received');
+	assert.equal(shiprocketDispute('lost'), null);
+	assert.equal(shiprocketDeadline('2026-10-20T09:04:00Z'), '2026-10-23T09:04:00.000Z');
+	assert.equal(shiprocketDeadline(null), null);
 });

@@ -32,6 +32,26 @@ const VELOCITY_TYPE: Record<string, string> = {
 };
 export const velocityDisputeType = (claimReason: string | null | undefined): string | null => VELOCITY_TYPE[String(claimReason ?? '')] ?? null;
 
+/**
+ * Shiprocket → Orders → search AWB → ⋯ More → Raise Dispute (support.shiprocket.in article 152000000285, read 21 Oct 2026).
+ * concern = the option on the first screen; pick = the reason in the dropdown that follows (null when there is none).
+ */
+const SHIPROCKET_TYPE: Record<string, { concern: string; pick: string | null }> = {
+	mdnd: { concern: 'Delivered not received', pick: null },
+	wrong_product: { concern: 'Wrong, partial, damaged or empty shipment received', pick: 'Wrong' },
+	damaged: { concern: 'Wrong, partial, damaged or empty shipment received', pick: 'Damaged' },
+	missing_items: { concern: 'Wrong, partial, damaged or empty shipment received', pick: 'Partial (Empty if nothing was inside)' }
+};
+export const shiprocketDispute = (claimReason: string | null | undefined) => SHIPROCKET_TYPE[String(claimReason ?? '')] ?? null;
+
+/** Shiprocket accepts a dispute only within 72 hours of delivery (back); max 2 disputes per shipment. */
+export const SHIPROCKET_WINDOW_HOURS = 72;
+export function shiprocketDeadline(rtoDeliveredAt: string | null | undefined): string | null {
+	const t = rtoDeliveredAt ? Date.parse(rtoDeliveredAt) : NaN;
+	return Number.isNaN(t) ? null : new Date(t + SHIPROCKET_WINDOW_HOURS * 3_600_000).toISOString();
+}
+export const SHIPROCKET_APP = 'https://app.shiprocket.in/';
+
 const REASON_LABEL: Record<string, string> = {
 	mdnd: 'MDND',
 	wrong_product: 'Wrong product',

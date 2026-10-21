@@ -7,6 +7,7 @@ export interface FollowClaim {
 	rto_id: string;
 	reason: string;
 	status: string;
+	courier?: string | null;
 	channel?: string | null;
 	ticket_ref?: string | null;
 	ticket_url?: string | null;
