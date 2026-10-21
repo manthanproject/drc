@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { describe as say } from '../src/lib/history.ts';
-import { REASONS, reasonOf, velocityDisputeType, claimRemarks, isDummyItem, mediaFileName, extOf, dateLong, claimStatus, mdndRemarks, bulkSameMinute, dateTimeLong, shiprocketDispute, shiprocketDeadline } from '../src/lib/claims.ts';
+import { REASONS, reasonOf, velocityDisputeType, claimRemarks, isDummyItem, mediaFileName, extOf, dateLong, claimStatus, mdndRemarks, bulkSameMinute, dateTimeLong, shiprocketDispute, shiprocketDeadline, shiprocketRemarks } from '../src/lib/claims.ts';
 
 test('every reason maps to a Velocity dispute type (same mapping as create_rto_claim)', () => {
 	const want: Record<string, string> = { wrong: 'wrong_product', damaged: 'damaged', missing: 'missing_items', leak: 'damaged', empty: 'missing_items', near_expiry: 'wrong_product' };
@@ -114,10 +114,21 @@ test('evidence progress: new collage claims and old photo claims', async () => {
 
 test('Shiprocket dispute option per reason + 72 h window', () => {
 	for (const r of REASONS) assert.ok(shiprocketDispute(r.claimReason), r.key);
-	assert.deepEqual(shiprocketDispute('mdnd'), { concern: 'Delivered not received', pick: null });
-	assert.equal(shiprocketDispute('damaged')?.pick, 'Damaged');
-	assert.equal(shiprocketDispute('wrong_product')?.concern, 'Wrong, partial, damaged or empty shipment received');
+	assert.deepEqual(shiprocketDispute('mdnd'), { concern: 'Order Not Delivered', pick: null });
+	assert.equal(shiprocketDispute('wrong_product')?.pick, 'Wrong Product Received');
+	assert.equal(shiprocketDispute('damaged')?.concern, 'Wrong / Damaged / Partial / Empty Package Delivered');
 	assert.equal(shiprocketDispute('lost'), null);
 	assert.equal(shiprocketDeadline('2026-10-20T09:04:00Z'), '2026-10-23T09:04:00.000Z');
 	assert.equal(shiprocketDeadline(null), null);
+});
+
+test('Shiprocket remarks fit the 255-character box', () => {
+	const base = { order_no: '8247623497', forward_awb: '153508463592228', order_value: 14676, rto_delivered_at: '2026-10-20T09:04:00Z', received_at: '2026-10-21T06:00:00Z', reason: 'wrong' as const };
+	const long = shiprocketRemarks({ ...base, items: [{ title: 'Thorne Womens Multi 50 Plus Comprehensive Daily Multivitamin Without Iron And Copper For Postmenopausal Support 180 Caps', qty: 1 }],
+		links: { packing: 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456/view' } });
+	assert.ok(long.length <= 255, String(long.length));
+	assert.match(long, /^RTO #Dropy-8247623497 \(AWB 153508463592228\) delivered back 20 Oct 2026\. On opening: a different product inside, not what we shipped\. Item: Thorne Womens/);
+	assert.match(long, /Packing video: https:\/\/drive\.google\.com\/file\/d\/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456\/view$/);
+	const short = shiprocketRemarks({ ...base, items: [{ title: 'Serum', qty: 1 }], links: {} });
+	assert.equal(short, 'RTO #Dropy-8247623497 (AWB 153508463592228) delivered back 20 Oct 2026. On opening: a different product inside, not what we shipped. Item: Serum. Unboxing video and AWB photo attached.');
 });

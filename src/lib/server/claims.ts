@@ -4,7 +4,7 @@ import { fail, UUID, applyArrived } from './actions.ts';
 import { claimFolder, startUpload, shareAnyoneReader, ensureShortcut, trashUnused, DriveError } from './drive.ts';
 import { allRtos } from './rto-data.ts';
 import { findPacking } from './droppy.ts';
-import { reasonOf, isMediaKind, isDummyItem, mediaFileName, extOf, claimRemarks, driveFileUrl, driveFolderUrl, orderFilePrefix, mdndRemarks, bulkSameMinute } from '#lib/claims.ts';
+import { reasonOf, isMediaKind, isDummyItem, mediaFileName, extOf, claimRemarks, shiprocketRemarks, driveFileUrl, driveFolderUrl, orderFilePrefix, mdndRemarks, bulkSameMinute } from '#lib/claims.ts';
 
 const ID = /^[\w-]{1,64}$/; // rto_items ids (uuid in the database)
 const DRIVE_ID = /^[\w-]{10,200}$/;
@@ -115,7 +115,9 @@ export async function createClaim(rtoId: string, raw: unknown, arrived: string |
 	}
 
 	const unboxing = media.find((m) => m.kind === 'unboxing_video');
-	const description = claimRemarks({
+	// Shiprocket's Seller Remarks box keeps ~255 characters: a short version for its parcels
+	const remarksFor = r.courier === 'shiprocket' && r.kind !== 'customer_return' ? shiprocketRemarks : claimRemarks;
+	const description = remarksFor({
 		order_no: r.order_no,
 		forward_awb: r.forward_awb,
 		order_value: r.order_value,

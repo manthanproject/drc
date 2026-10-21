@@ -33,14 +33,15 @@ const VELOCITY_TYPE: Record<string, string> = {
 export const velocityDisputeType = (claimReason: string | null | undefined): string | null => VELOCITY_TYPE[String(claimReason ?? '')] ?? null;
 
 /**
- * Shiprocket → Orders → search AWB → ⋯ More → Raise Dispute (support.shiprocket.in article 152000000285, read 21 Oct 2026).
+ * Shiprocket → Orders → search AWB → ⋯ More → Raise Dispute (labels as seen in the panel 21 Oct 2026).
  * concern = the option on the first screen; pick = the reason in the dropdown that follows (null when there is none).
  */
+const WDPE = 'Wrong / Damaged / Partial / Empty Package Delivered';
 const SHIPROCKET_TYPE: Record<string, { concern: string; pick: string | null }> = {
-	mdnd: { concern: 'Delivered not received', pick: null },
-	wrong_product: { concern: 'Wrong, partial, damaged or empty shipment received', pick: 'Wrong' },
-	damaged: { concern: 'Wrong, partial, damaged or empty shipment received', pick: 'Damaged' },
-	missing_items: { concern: 'Wrong, partial, damaged or empty shipment received', pick: 'Partial (Empty if nothing was inside)' }
+	mdnd: { concern: 'Order Not Delivered', pick: null },
+	wrong_product: { concern: WDPE, pick: 'Wrong Product Received' },
+	damaged: { concern: WDPE, pick: 'the Damaged option' },
+	missing_items: { concern: WDPE, pick: 'the Partial (or Empty) option' }
 };
 export const shiprocketDispute = (claimReason: string | null | undefined) => SHIPROCKET_TYPE[String(claimReason ?? '')] ?? null;
 
@@ -262,4 +263,35 @@ export function mdndRemarks(x: MdndInput): string {
 	]
 		.filter(Boolean)
 		.join('\n');
+}
+
+/** Shiprocket's "Seller Remarks" box keeps only ~255 characters (seen 21 Oct 2026). */
+export const SHIPROCKET_REMARKS_MAX = 255;
+
+/**
+ * Short remarks for Shiprocket → Raise Dispute → Seller Remarks, always ≤ 255 characters.
+ * Keeps order, AWB, date and finding; adds the packing-video link if it fits; the item name is trimmed to what is left.
+ * The unboxing video and the AWB photo are uploaded as proofs in that form, so they are only mentioned.
+ */
+const SR_FINDING: Record<string, string> = {
+	wrong: 'a different product inside, not what we shipped',
+	damaged: 'the product was damaged',
+	missing: 'items we shipped were missing',
+	leak: 'the product had leaked / broken',
+	empty: 'the package was empty',
+	near_expiry: 'a different near-expiry unit inside, not our fresh stock'
+};
+export function shiprocketRemarks(x: RemarksInput): string {
+	const order = /^\d+(-\d+)*$/.test(String(x.order_no ?? '')) ? `#Dropy-${x.order_no}` : String(x.order_no ?? '');
+	const day = dateLong(x.rto_delivered_at ?? x.received_at);
+	const finding = SR_FINDING[x.reason] ?? reasonOf(x.reason)!.finding;
+	const head = `RTO ${order} (AWB ${x.forward_awb ?? '-'}) delivered back ${day}. On opening: ${finding}.`;
+	const max = SHIPROCKET_REMARKS_MAX;
+	const pack = x.links.packing && head.length + 16 + x.links.packing.length <= max ? ` Packing video: ${x.links.packing}` : '';
+	const titles = x.items.map((i) => i.title.replace(/\s+/g, ' ').trim()).filter(Boolean).join('; ');
+	const room = max - head.length - pack.length - ' Item: .'.length;
+	const item = titles && room >= 15 ? ` Item: ${titles.length > room ? titles.slice(0, room - 1).trimEnd() + '…' : titles + '.'}` : '';
+	const tail = ' Unboxing video and AWB photo attached.';
+	const out = head + item + pack;
+	return (out.length + tail.length <= max ? out + tail : out).slice(0, max);
 }

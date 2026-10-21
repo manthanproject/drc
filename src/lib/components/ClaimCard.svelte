@@ -187,6 +187,7 @@
 				<div class="sb">
 					<label for="rm-{claim.id}"><b>Paste the remarks</b></label>
 					{#if !claim.description && !text}<span class="small muted">No draft text (this claim was made before DRC wrote remarks).</span>{/if}
+					{#if isSr && text.length > 255}<span class="small late">Shiprocket keeps only 255 characters ({text.length} now): shorten it before copying.</span>{/if}
 					<textarea id="rm-{claim.id}" rows="8" bind:value={text}></textarea>
 					<div class="row">
 						<button class="go accb" disabled={!text.trim()} onclick={() => copy(text, 'text')}>{copied === 'text' ? 'Copied ✓' : 'Copy remarks'}</button>
@@ -198,7 +199,15 @@
 				<span class="n">4</span>
 				<div class="sb">
 					<b>Attach the evidence</b>
-					{#if isSr && srType?.pick}<span class="small muted">Shiprocket prefers images: upload the photo collage. The video links are already in the remarks.</span>{/if}
+					{#if isSr && srType?.pick}
+						<span class="small muted">Shiprocket scores the proofs (more points, faster result):</span>
+						<ul class="srp">
+							<li><b>Unboxing video</b> +50 · MP4/MOV, max 25 MB</li>
+							<li><b>Package image with readable AWB</b> +15 · the label photo or collage</li>
+							<li><b>Negative remarks on POD</b> +25 · only if the delivery slip was signed with a remark</li>
+							<li><b>Additional proofs</b> +10 · a pre-ship packing photo</li>
+						</ul>
+					{/if}
 					<div class="files">
 						{#if folderId}<div><span>Claim folder in Drive<small class="muted">anyone with the link can view</small></span><a href={driveFolderUrl(folderId)} target="_blank" rel="noopener noreferrer">Open folder</a></div>{/if}
 						{#if photos.length}<div><span>{photos.some(([k]) => k === 'collage') ? 'Photo collage' : 'Front, back, label photos'}<small class="muted">download to attach</small></span><span class="links">{#each photos as [k, m] (k)}<a href={driveFileUrl(m!.drive_file_id)} target="_blank" rel="noopener noreferrer">{k}</a>{/each}</span></div>{/if}
@@ -244,6 +253,7 @@
 	.go:disabled { opacity: 0.55; cursor: default; }
 	.dark { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 	.accb { background: var(--acc); border-color: var(--acc); color: #fff; }
+	.srp { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
 	.late { margin: 0 0 6px; color: var(--bad); font-weight: 600; }
 	.badb { background: var(--bad); border-color: var(--bad); color: #fff; align-self: flex-start; }
 	.stale { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 8px; padding: 12px; border-radius: 12px; background: var(--bad-soft); font-size: 13.5px; line-height: 1.45; }
