@@ -145,3 +145,21 @@ export function mapShiprocketOrder(order: any, track: any = null) {
 		raw: { order: o, tracking: td }
 	};
 }
+
+/**
+ * Older-orders sweep. Each sync reads the newest pages, then a few older pages from a cursor that walks
+ * back through the whole account and starts over, so an RTO on an old order (e.g. #3999, 3,000+ orders
+ * behind) is still picked up within a couple of hours.
+ */
+export const DEEP_FIRST_PAGE = 21; // the newest pages (1..20) are read every run; the sweep never starts inside them
+export function nextDeepPage(start: number, pagesRead: number, hitEnd: boolean): number {
+	if (hitEnd || !Number.isFinite(start) || start < 1) return DEEP_FIRST_PAGE;
+	return start + Math.max(pagesRead, 1);
+}
+
+/** A sweep row whose last movement is older than this is settled history: never added (avoids false "not received" alerts). */
+export const DEEP_MAX_AGE_DAYS = 45;
+export function deepRowTooOld(row: { rto_delivered_at: string | null; last_event_at: string | null }, now: number, maxDays = DEEP_MAX_AGE_DAYS): boolean {
+	const t = Date.parse(row.rto_delivered_at ?? row.last_event_at ?? '');
+	return !Number.isFinite(t) || now - t > maxDays * 86_400_000;
+}

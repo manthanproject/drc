@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { requireCronOrPassword } from '#lib/server/auth.ts';
 import { requireUser, validSession, SESSION_COOKIE } from '#lib/server/session.ts';
 import { shiprocketGet, ShiprocketAuthError } from '#lib/server/shiprocket.ts';
-import { isRtoStatus, mapShiprocketOrder, srDate, type SrRow } from '#lib/shiprocket-map.ts';
+import { isRtoStatus, mapShiprocketOrder, srDate, nextDeepPage, deepRowTooOld, DEEP_FIRST_PAGE, type SrRow } from '#lib/shiprocket-map.ts';
 import { db } from '#lib/server/supabase.ts';
 import type { RequestHandler } from './$types';
 
@@ -17,6 +17,8 @@ const PER_PAGE = 100;
 const MAX_PAGES = 20;
 const LOOK_BACK_DAYS = 75; // an RTO is settled well within this many days of the order
 const PARALLEL = 3;
+const DEEP_PAGES_PER_RUN = 6; // older pages swept per run (~40 pages total → whole account every ~2 h at 15-min cron)
+const DEEP_KEY = 'shiprocket_deep_cursor';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const keys = (o: any) => (o && typeof o === 'object' ? Object.keys(o) : []);
@@ -58,6 +60,30 @@ async function recentOrders() {
 	return { orders, pages, reachedEnd: done };
 }
 
+/** Older pages from the sweep cursor; returns the orders, how many pages were read and whether the account's end was reached. */
+async function deepOrders(start: number) {
+	const orders: any[] = [];
+	let pages = 0;
+	let hitEnd = false;
+	for (let p = start; p < start + DEEP_PAGES_PER_RUN && !hitEnd; p += PARALLEL) {
+		const nums = Array.from({ length: Math.min(PARALLEL, start + DEEP_PAGES_PER_RUN - p) }, (_, i) => p + i);
+		const batch = await Promise.all(nums.map(getPage));
+		for (const data of batch) {
+			if (hitEnd) break;
+			pages++;
+			orders.push(...data);
+			if (data.length < PER_PAGE) hitEnd = true;
+		}
+	}
+	return { orders, pages, hitEnd };
+}
+
+async function deepCursor(): Promise<number> {
+	const { data } = await db().from('settings').select('value').eq('key', DEEP_KEY).maybeSingle();
+	const n = Number((data?.value as { next_page?: number } | undefined)?.next_page);
+	return Number.isFinite(n) && n >= DEEP_FIRST_PAGE ? n : DEEP_FIRST_PAGE;
+}
+
 async function track(awb: string): Promise<any> {
 	try {
 		const r = await shiprocketGet(`/courier/track/awb/${encodeURIComponent(awb)}`);
@@ -87,9 +113,17 @@ async function run(withFields: boolean) {
 	const started = Date.now();
 	try {
 		const { orders, pages, reachedEnd } = await recentOrders();
+		// older-orders sweep: only when the newest pages did not already reach the end of the account
+		const accountEnded = orders.length < pages * PER_PAGE;
+		const deepStart = accountEnded ? DEEP_FIRST_PAGE : Math.max(await deepCursor(), pages + 1); // never re-read the newest pages
+		const deep = accountEnded ? { orders: [] as any[], pages: 0, hitEnd: true } : await deepOrders(deepStart);
+		const deepNext = nextDeepPage(deepStart, deep.pages, deep.hitEnd);
 		const statuses: Record<string, number> = {};
 		for (const o of orders) statuses[String(o?.status ?? '?')] = (statuses[String(o?.status ?? '?')] ?? 0) + 1;
-		const rtoOrders = orders.filter((o) => isRtoStatus(o?.status));
+		const recentRto = orders.filter((o) => isRtoStatus(o?.status));
+		const recentIds = new Set(recentRto.map((o) => String(o?.id ?? '')));
+		const deepRto = deep.orders.filter((o) => isRtoStatus(o?.status) && !recentIds.has(String(o?.id ?? '')));
+		const rtoOrders = [...recentRto, ...deepRto];
 
 		// tracking gives the exact "RTO delivered" time the not-received timer starts from
 		const tracks: any[] = new Array(rtoOrders.length).fill(null);
@@ -104,13 +138,16 @@ async function run(withFields: boolean) {
 			);
 		}
 
-		const skipped = { no_awb: 0, no_order: 0 };
+		const skipped = { no_awb: 0, no_order: 0, old_history: 0 };
 		const byAwb = new Map<string, SrRow>();
+		const now = Date.now();
 		rtoOrders.forEach((o, i) => {
 			const m = mapShiprocketOrder(o, tracks[i]);
+			const fromSweep = i >= recentRto.length;
 			if (!m.awb) skipped.no_awb++;
 			else if (!m.order_no) skipped.no_order++;
-			else byAwb.set(m.awb, m);
+			else if (fromSweep && deepRowTooOld(m, now)) skipped.old_history++;
+			else if (!byAwb.has(m.awb) || !fromSweep) byAwb.set(m.awb, m);
 		});
 		const mapped = [...byAwb.values()];
 
@@ -123,11 +160,14 @@ async function run(withFields: boolean) {
 			totals.status_changes += data?.status_changes ?? 0;
 		}
 
+		await db().from('settings').upsert({ key: DEEP_KEY, value: { next_page: deepNext, at: new Date().toISOString() }, note: 'Older-orders sweep cursor, written by /api/sync/shiprocket' });
+
 		const result = {
 			ok: true,
 			at: new Date().toISOString(),
 			ms: Date.now() - started,
 			fetched: { orders: orders.length, pages, reached_look_back: reachedEnd, rto: rtoOrders.length, unique: mapped.length, track_failed: trackFailed },
+			sweep: { from_page: deepStart, pages: deep.pages, orders: deep.orders.length, rto: deepRto.length, next_page: deepNext, wrapped: deep.hitEnd },
 			skipped,
 			statuses,
 			...totals,

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { srDate, srStatus, isRtoStatus, normalizeOrderNo, mapShiprocketOrder, trackingData } from '../src/lib/shiprocket-map.ts';
+import { srDate, srStatus, isRtoStatus, normalizeOrderNo, mapShiprocketOrder, trackingData, nextDeepPage, deepRowTooOld, DEEP_FIRST_PAGE } from '../src/lib/shiprocket-map.ts';
 import { trackingUrl, type Rto } from '../src/lib/dashboard.ts';
 
 test('Shiprocket dates are IST', () => {
@@ -111,4 +111,19 @@ test('Home warning names the login problem in plain words', async () => {
 	assert.match(shiprocketWarning('Shiprocket login failed (HTTP 403): User blocked due to too many failed login attempts.'), /blocked/);
 	assert.match(shiprocketWarning('Shiprocket login failed (HTTP 403): Invalid email and password combination'), /SHIPROCKET_PASSWORD/);
 	assert.match(shiprocketWarning('Shiprocket /orders page 1: HTTP 502'), /retries/);
+});
+
+test('older-orders sweep walks back through the account and starts over at the end', () => {
+	assert.equal(nextDeepPage(21, 6, false), 27);
+	assert.equal(nextDeepPage(57, 3, true), DEEP_FIRST_PAGE); // reached the oldest orders: start again
+	assert.equal(nextDeepPage(Number.NaN, 0, false), DEEP_FIRST_PAGE);
+	assert.equal(nextDeepPage(40, 0, false), 41); // a run that read nothing still moves on
+});
+
+test('sweep adds recent RTOs from old orders (like #3999) but not settled history', () => {
+	const now = Date.parse('2026-10-25T12:00:00Z');
+	assert.equal(deepRowTooOld({ rto_delivered_at: '2026-10-22T10:21:39Z', last_event_at: null }, now), false); // #3999, back 3 days ago
+	assert.equal(deepRowTooOld({ rto_delivered_at: '2026-09-01T10:07:19Z', last_event_at: null }, now), true); // #2396, back and reshipped in Sep
+	assert.equal(deepRowTooOld({ rto_delivered_at: null, last_event_at: '2026-10-20T08:00:00Z' }, now), false); // still moving
+	assert.equal(deepRowTooOld({ rto_delivered_at: null, last_event_at: null }, now), true); // no dates: leave it out
 });
