@@ -147,14 +147,43 @@ export function mapShiprocketOrder(order: any, track: any = null) {
 }
 
 /**
- * Older-orders sweep. Each sync reads the newest pages, then a few older pages from a cursor that walks
- * back through the whole account and starts over, so an RTO on an old order (e.g. #3999, 3,000+ orders
- * behind) is still picked up within a couple of hours.
+ * Older-orders sweep. Shiprocket's order list returns only the last 30 days unless dates are given,
+ * so an RTO on an older order (e.g. #3999, ordered 30 Aug, back 22 Oct) was never seen. Each sync also
+ * reads one 10-day window of orders 30–90 days old (6 windows, one per run, then start over), passing
+ * from/to dates. If Shiprocket ignores the dates, the run says so (dates_honoured: false) and uses nothing from it.
  */
-export const DEEP_FIRST_PAGE = 21; // the newest pages (1..20) are read every run; the sweep never starts inside them
-export function nextDeepPage(start: number, pagesRead: number, hitEnd: boolean): number {
-	if (hitEnd || !Number.isFinite(start) || start < 1) return DEEP_FIRST_PAGE;
-	return start + Math.max(pagesRead, 1);
+export const SWEEP_SKIP_DAYS = 30;
+export const SWEEP_WINDOW_DAYS = 10;
+export const SWEEP_WINDOWS = 6;
+export type SweepCursor = { window: number; page: number };
+
+const istDate = (now: number, daysBack: number) => new Date(now + 5.5 * 3_600_000 - daysBack * 86_400_000).toISOString().slice(0, 10);
+
+export function readSweepCursor(v: unknown): SweepCursor {
+	const o = (v && typeof v === 'object' ? v : {}) as { window?: unknown; page?: unknown };
+	const w = Number(o.window), p = Number(o.page);
+	return {
+		window: Number.isInteger(w) && w >= 0 && w < SWEEP_WINDOWS ? w : 0,
+		page: Number.isInteger(p) && p >= 1 ? p : 1
+	};
+}
+
+/** The date range (IST, YYYY-MM-DD, both ends included) a cursor reads; window 0 = orders 31–40 days old. */
+export function sweepRange(c: SweepCursor, now: number): { from: string; to: string } {
+	const near = SWEEP_SKIP_DAYS + c.window * SWEEP_WINDOW_DAYS + 1;
+	return { from: istDate(now, near + SWEEP_WINDOW_DAYS - 1), to: istDate(now, near) };
+}
+
+/** After reading `pagesRead` pages: same window, next pages; or, at the window's end, the next window (wrapping). */
+export function nextSweep(c: SweepCursor, pagesRead: number, hitEnd: boolean): SweepCursor {
+	if (hitEnd) return { window: (c.window + 1) % SWEEP_WINDOWS, page: 1 };
+	return { window: c.window, page: c.page + Math.max(pagesRead, 1) };
+}
+
+/** True when every returned order was created on or before the window's last day (i.e. Shiprocket used the dates). */
+export function datesHonoured(createdAt: (string | null)[], to: string): boolean {
+	const limit = Date.parse(`${to}T23:59:59+05:30`) + 3_600_000;
+	return createdAt.every((iso) => !iso || Date.parse(iso) <= limit);
 }
 
 /** A sweep row whose last movement is older than this is settled history: never added (avoids false "not received" alerts). */

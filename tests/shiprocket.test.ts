@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { srDate, srStatus, isRtoStatus, normalizeOrderNo, mapShiprocketOrder, trackingData, nextDeepPage, deepRowTooOld, DEEP_FIRST_PAGE } from '../src/lib/shiprocket-map.ts';
+import { srDate, srStatus, isRtoStatus, normalizeOrderNo, mapShiprocketOrder, trackingData, deepRowTooOld, readSweepCursor, sweepRange, nextSweep, datesHonoured } from '../src/lib/shiprocket-map.ts';
 import { trackingUrl, type Rto } from '../src/lib/dashboard.ts';
 
 test('Shiprocket dates are IST', () => {
@@ -113,11 +113,22 @@ test('Home warning names the login problem in plain words', async () => {
 	assert.match(shiprocketWarning('Shiprocket /orders page 1: HTTP 502'), /retries/);
 });
 
-test('older-orders sweep walks back through the account and starts over at the end', () => {
-	assert.equal(nextDeepPage(21, 6, false), 27);
-	assert.equal(nextDeepPage(57, 3, true), DEEP_FIRST_PAGE); // reached the oldest orders: start again
-	assert.equal(nextDeepPage(Number.NaN, 0, false), DEEP_FIRST_PAGE);
-	assert.equal(nextDeepPage(40, 0, false), 41); // a run that read nothing still moves on
+test('older-orders sweep reads 10-day windows of orders 31-90 days old, then starts over', () => {
+	const now = Date.parse('2026-10-25T14:47:00Z'); // 20:17 IST
+	assert.deepEqual(sweepRange({ window: 0, page: 1 }, now), { from: '2026-09-15', to: '2026-09-24' });
+	assert.deepEqual(sweepRange({ window: 2, page: 1 }, now), { from: '2026-08-26', to: '2026-09-04' }); // #3999 (30 Aug) is here
+	assert.deepEqual(sweepRange({ window: 5, page: 1 }, now), { from: '2026-07-27', to: '2026-08-05' });
+	assert.deepEqual(nextSweep({ window: 2, page: 1 }, 6, false), { window: 2, page: 7 });
+	assert.deepEqual(nextSweep({ window: 2, page: 7 }, 2, true), { window: 3, page: 1 });
+	assert.deepEqual(nextSweep({ window: 5, page: 1 }, 4, true), { window: 0, page: 1 });
+	assert.deepEqual(readSweepCursor({ next_page: 21 }), { window: 0, page: 1 }); // old cursor shape
+	assert.deepEqual(readSweepCursor({ window: 9, page: -1 }), { window: 0, page: 1 });
+});
+
+test('a sweep run notices when Shiprocket ignores the dates', () => {
+	assert.equal(datesHonoured(['2026-08-30T02:42:29.000Z', '2026-09-05T18:00:00.000Z'], '2026-09-05'), true);
+	assert.equal(datesHonoured(['2026-10-14T10:00:00.000Z'], '2026-09-05'), false); // got recent orders instead
+	assert.equal(datesHonoured([], '2026-09-05'), true);
 });
 
 test('sweep adds recent RTOs from old orders (like #3999) but not settled history', () => {
