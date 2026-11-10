@@ -1,0 +1,345 @@
+From 1a0f53699f3db18f47600776ac099888b7fbce2b Mon Sep 17 00:00:00 2001
+From: JD <admin@dropy.in>
+Date: Tue, 10 Nov 2026 14:25:31 +0000
+Subject: [PATCH] Scan: swipe left on a Scanned today row to delete it (clears
+ the scan, or deletes an unknown parcel saved by mistake)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01D377CX3M6QAGFY4onNA15E
+---
+ src/lib/components/SwipeRow.svelte            | 106 ++++++++++++++++++
+ src/lib/history.ts                            |   2 +
+ src/lib/server/actions.ts                     |  10 +-
+ src/lib/server/today.ts                       |   2 +-
+ src/routes/scan/+page.svelte                  |  35 +++++-
+ .../migrations/0025_delete_unknown_parcel.sql |  44 ++++++++
+ tests/sql/0025_test.sql                       |  32 ++++++
+ 7 files changed, 227 insertions(+), 4 deletions(-)
+ create mode 100644 src/lib/components/SwipeRow.svelte
+ create mode 100644 supabase/migrations/0025_delete_unknown_parcel.sql
+ create mode 100644 tests/sql/0025_test.sql
+
+diff --git a/src/lib/components/SwipeRow.svelte b/src/lib/components/SwipeRow.svelte
+new file mode 100644
+index 0000000..fb7430c
+--- /dev/null
++++ b/src/lib/components/SwipeRow.svelte
+@@ -0,0 +1,106 @@
++<script lang="ts">
++	import type { Snippet } from 'svelte';
++
++	// A row of "Scanned today": tap opens it; swipe left (finger or mouse drag) shows Delete behind it.
++	// One row open at a time: the parent binds `openId`.
++	let {
++		id,
++		href,
++		openId = $bindable(null),
++		busy = false,
++		ondelete,
++		children
++	}: { id: string; href: string; openId?: string | null; busy?: boolean; ondelete: () => void; children: Snippet } = $props();
++
++	const W = 96; // width of the Delete button
++	let x = $state(0); // current offset (0 closed … -W open)
++	let dragging = $state(false);
++	let startX = 0;
++	let startY = 0;
++	let base = 0;
++	let swiped = false; // a drag happened → the click that follows must not open the row
++	let decided: 'h' | 'v' | null = null;
++	let tracking = false; // pointer is down on this row
++
++	// another row opened (or this one closed from outside) → slide shut
++	$effect(() => {
++		if (openId !== id && !dragging) x = 0;
++	});
++
++	function down(e: PointerEvent) {
++		if (e.button !== 0 || busy) return;
++		startX = e.clientX;
++		startY = e.clientY;
++		base = openId === id ? -W : 0;
++		decided = null;
++		swiped = false;
++		tracking = true;
++	}
++
++	function move(e: PointerEvent) {
++		if (!tracking) return;
++		const dx = e.clientX - startX;
++		const dy = e.clientY - startY;
++		if (!decided) {
++			if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
++			decided = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
++			if (decided === 'h') {
++				dragging = true;
++				swiped = true;
++				(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
++			}
++		}
++		if (decided !== 'h') return;
++		x = Math.max(-W - 24, Math.min(0, base + dx));
++	}
++
++	function up() {
++		if (dragging) {
++			const open = x < -W / 2;
++			x = open ? -W : 0;
++			openId = open ? id : openId === id ? null : openId;
++		}
++		dragging = false;
++		decided = null;
++		tracking = false;
++	}
++
++	function click(e: MouseEvent) {
++		if (swiped) {
++			e.preventDefault();
++			swiped = false;
++			return;
++		}
++		if (openId === id) {
++			// tap on an open row closes it instead of opening the parcel
++			e.preventDefault();
++			openId = null;
++		}
++	}
++</script>
++
++<div class="sw">
++	<button class="del" style:visibility={x < 0 ? 'visible' : 'hidden'} tabindex={openId === id ? 0 : -1} aria-hidden={openId !== id} disabled={busy} onclick={ondelete}>{busy ? '…' : 'Delete'}</button>
++	<a
++		class="fg"
++		class:anim={!dragging}
++		{href}
++		style="transform: translateX({x}px)"
++		onpointerdown={down}
++		onpointermove={move}
++		onpointerup={up}
++		onpointercancel={up}
++		onclick={click}
++		draggable="false"
++	>
++		{@render children()}
++	</a>
++</div>
++
++<style>
++	.sw { position: relative; overflow: hidden; border-top: 1px solid var(--line); }
++	.del { position: absolute; inset: 0 0 0 auto; width: 96px; border: 0; background: var(--bad, #c0392b); color: #fff; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
++	.del:disabled { opacity: 0.6; cursor: default; }
++	.fg { position: relative; display: flex; justify-content: space-between; align-items: center; padding: 10px 0; background: var(--surface); touch-action: pan-y; user-select: none; -webkit-user-select: none; }
++	.fg.anim { transition: transform 0.18s ease; }
++</style>
+diff --git a/src/lib/history.ts b/src/lib/history.ts
+index ae86392..76976a8 100644
+--- a/src/lib/history.ts
++++ b/src/lib/history.ts
+@@ -95,6 +95,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
+ 			return { text: `Test scans cleared, back to ${stageName(p.restored_stage)}`, who: 'Staff (SQL)', muted: true };
+ 		case 'unknown_parcel':
+ 			return { text: `Saved as unknown parcel (scanned ${p.code ?? '—'})`, who, muted: false };
++		case 'unknown_parcel_deleted':
++			return { text: `Unknown parcel deleted (scanned ${p.code ?? '—'} by mistake)`, who, muted: false };
+ 		default:
+ 			return { text: e.kind ?? 'Event', who, muted: false };
+ 	}
+diff --git a/src/lib/server/actions.ts b/src/lib/server/actions.ts
+index cbb628d..d8589fb 100644
+--- a/src/lib/server/actions.ts
++++ b/src/lib/server/actions.ts
+@@ -54,7 +54,9 @@ const MESSAGES: Record<string, [number, string]> = {
+ 	DRC_NOT_SCANNED: [409, 'This parcel is not scanned, nothing to clear. Refresh the page'],
+ 	DRC_SCAN_NOT_TODAY: [409, "Only today's scans can be cleared. For an older scan use Change status or Mark not arrived"],
+ 	DRC_REFUND_PAID: [409, 'The refund for this parcel is already marked Done in Refunds, so the scan cannot be cleared'],
+-	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again']
++	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again'],
++	DRC_NOT_UNKNOWN: [409, 'This parcel is matched to an order now. Refresh the page'],
++	DRC_UNKNOWN_NOT_TODAY: [409, "Only an unknown parcel saved today can be deleted"]
+ };
+ 
+ export function fail(message: string): never {
+@@ -110,6 +112,12 @@ export async function runAction(rtoId: string, action: string, args: ActionArgs,
+ 		if (e) fail(e.message.includes('DRC_CLAIM_NOT_DRAFT') ? 'DRC_CLAIM_RAISED_SCAN' : e.message);
+ 		return data as { event_id: number; cleared: number; to: string };
+ 	}
++	if (action === 'delete_unknown') {
++		// unknown parcel saved today by mistake → row deleted, History keeps a note
++		const { data, error: e } = await db().rpc('delete_unknown_parcel', { p_rto: rtoId });
++		if (e) fail(e.message);
++		return data as { deleted: boolean; code: string | null; event_id: number };
++	}
+ 	if (!(ACTIONS as readonly string[]).includes(action)) error(400, 'Unknown action');
+ 	const { data, error: e } = await db().rpc('rto_action', { p_rto: rtoId, p_action: action, p_args: args });
+ 	if (e) fail(e.message);
+diff --git a/src/lib/server/today.ts b/src/lib/server/today.ts
+index 8f37fbe..43de8dd 100644
+--- a/src/lib/server/today.ts
++++ b/src/lib/server/today.ts
+@@ -13,6 +13,6 @@ export async function scannedToday() {
+ 	if (error) throw new Error(`rtos: ${error.message}`);
+ 	return (data ?? []).map((r) => {
+ 		const b = BUCKETS[bucketOfStage(r.stage)];
+-		return { id: r.id as string, order: r.order_no ? `#${r.order_no}` : `Unknown ${r.scanned_code ?? ''}`, carrier: r.carrier_name as string | null, stage: b?.label ?? r.stage, tone: b?.tone ?? 'mute' };
++		return { id: r.id as string, unknown: r.stage === 'unknown_parcel', order: r.order_no ? `#${r.order_no}` : `Unknown ${r.scanned_code ?? ''}`, carrier: r.carrier_name as string | null, stage: b?.label ?? r.stage, tone: b?.tone ?? 'mute' };
+ 	});
+ }
+diff --git a/src/routes/scan/+page.svelte b/src/routes/scan/+page.svelte
+index e00695c..91392fc 100644
+--- a/src/routes/scan/+page.svelte
++++ b/src/routes/scan/+page.svelte
+@@ -6,6 +6,7 @@
+ 	import StatusPicker from '#lib/components/StatusPicker.svelte';
+ 	import UndoBar from '#lib/components/UndoBar.svelte';
+ 	import ClearScan from '#lib/components/ClearScan.svelte';
++	import SwipeRow from '#lib/components/SwipeRow.svelte';
+ 	import ArrivedPicker from '#lib/components/ArrivedPicker.svelte';
+ 	import { arrivedDay, shortDay } from '#lib/arrived.ts';
+ 	import { isToday, istTime } from '#lib/scanlog.ts';
+@@ -30,6 +31,35 @@
+ 	let unknownNote = $state('');
+ 	let savingUnknown = $state(false);
+ 	let flash = $state('');
++	let swipeOpen = $state<string | null>(null); // the "Scanned today" row swiped open
++	let deleting = $state<string | null>(null);
++
++	/** Swipe left → Delete on a "Scanned today" row. A matched parcel: today's scan is cleared (back as it was before
++	 *  the scan). An unknown parcel saved by mistake: the record is deleted. History keeps a note either way. */
++	async function deleteToday(t: { id: string; order: string; unknown: boolean }) {
++		if (deleting) return;
++		deleting = t.id;
++		findErr = '';
++		flash = '';
++		try {
++			const res = await fetch(`/api/rto/${t.id}/action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: t.unknown ? 'delete_unknown' : 'clear_scan' }) });
++			const b = await res.json().catch(() => ({}));
++			if (!res.ok) {
++				findErr = b?.message ?? 'Could not delete. Nothing changed.';
++				return;
++			}
++			swipeOpen = null;
++			undo = null;
++			if (detail?.rto?.id === t.id) closeCard();
++			flash = t.unknown ? `Deleted ${t.order}.` : `Scan of ${t.order} deleted. The parcel is back as it was before the scan.`;
++			await invalidate('drc:today');
++			scanner?.focusInput();
++		} catch {
++			findErr = 'No connection. Nothing changed.';
++		} finally {
++			deleting = null;
++		}
++	}
+ 
+ 	const STAFF = new Set(['scanned', 'inspected', 'to_call', 'reship', 'ready_stock', 'store_credit', 'hold', 'claim', 'closed']);
+ 
+@@ -168,8 +198,9 @@
+ 
+ 		<div class="card today-card">
+ 			<div class="todayhead"><b>Scanned today <span class="muted small">{data.today.length}</span></b><a class="pastlink" href="/scan/log">Past days →</a></div>
++			{#if data.today.length}<p class="muted small swipehint">Swipe a row left to delete a scan made by mistake.</p>{/if}
+ 			{#each data.today as t (t.id)}
+-				<a class="todayrow" href={rtoHref(t.id, '/scan')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
++				<SwipeRow id={t.id} href={rtoHref(t.id, '/scan')} bind:openId={swipeOpen} busy={deleting === t.id} ondelete={() => deleteToday(t)}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></SwipeRow>
+ 			{:else}
+ 				<p class="muted small">Nothing yet today.</p>
+ 			{/each}
+@@ -281,7 +312,7 @@
+ 	.linkbtn { background: none; border: 0; color: var(--acc); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 4px; }
+ 	.todayhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+ 	.pastlink { font-size: 13px; font-weight: 700; color: var(--acc); }
+-	.todayrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
++	.swipehint { margin: 0 0 6px; }
+ 	.idle { color: var(--muted); text-align: center; padding: 40px 20px; border-style: dashed; }
+ 
+ 	/* Phone: one column, Scanned today last. PC: scan box + today on the left, the parcel on the right */
+diff --git a/supabase/migrations/0025_delete_unknown_parcel.sql b/supabase/migrations/0025_delete_unknown_parcel.sql
+new file mode 100644
+index 0000000..69fe1c3
+--- /dev/null
++++ b/supabase/migrations/0025_delete_unknown_parcel.sql
+@@ -0,0 +1,44 @@
++-- DRC: delete an unknown parcel saved by mistake (10 Nov 2026). Swipe left on a row in "Scanned today" → Delete.
++-- Only a parcel that is still "unknown" (never matched to an order) and was saved today (IST). Nothing else is
++-- touched. The History keeps a note (events row, rto_id set to null by the foreign key when the row goes).
++begin;
++
++create or replace function public.delete_unknown_parcel(p_rto uuid)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  r    public.rtos%rowtype;
++  v_ev bigint;
++begin
++  select * into r from public.rtos where id = p_rto for update;
++  if not found then raise exception 'DRC_NOT_FOUND'; end if;
++  if r.stage <> 'unknown_parcel' then raise exception 'DRC_NOT_UNKNOWN'; end if;
++  if r.scanned_at is null
++     or (r.scanned_at at time zone 'Asia/Kolkata')::date <> (now() at time zone 'Asia/Kolkata')::date then
++    raise exception 'DRC_UNKNOWN_NOT_TODAY';
++  end if;
++  if exists (select 1 from public.claims where rto_id = p_rto) then raise exception 'DRC_HAS_CLAIM'; end if;
++
++  insert into public.events (source, rto_id, awb, kind, payload)
++  values ('user', p_rto, null, 'unknown_parcel_deleted',
++          jsonb_build_object('code', r.scanned_code, 'note', r.notes, 'scanned_at', r.scanned_at))
++  returning id into v_ev;
++
++  delete from public.rtos where id = p_rto;
++  return jsonb_build_object('deleted', true, 'code', r.scanned_code, 'event_id', v_ev);
++end;
++$$;
++
++revoke all on function public.delete_unknown_parcel(uuid) from public;
++do $$
++begin
++  if exists (select 1 from pg_roles where rolname = 'anon') then
++    execute 'revoke all on function public.delete_unknown_parcel(uuid) from anon, authenticated';
++    execute 'grant execute on function public.delete_unknown_parcel(uuid) to service_role';
++  end if;
++end $$;
++
++commit;
+diff --git a/tests/sql/0025_test.sql b/tests/sql/0025_test.sql
+new file mode 100644
+index 0000000..533cb33
+--- /dev/null
++++ b/tests/sql/0025_test.sql
+@@ -0,0 +1,32 @@
++-- Run on a scratch DB after all migrations: psql -v ON_ERROR_STOP=1 -f tests/sql/0025_test.sql
++\set QUIET on
++begin;
++create or replace function pg_temp.ok(c boolean, msg text) returns void language plpgsql as $$
++begin if c is distinct from true then raise exception 'FAIL: %', msg; end if; raise notice 'ok  %', msg; end $$;
++
++insert into public.rtos (id, stage, scanned_code, scanned_at, notes) values
++ ('00000000-0000-0000-0000-00000000f001','unknown_parcel','MISTAKE1', now(), 'oops'),
++ ('00000000-0000-0000-0000-00000000f002','unknown_parcel','OLD1', now() - interval '3 days', null);
++insert into public.rtos (id, courier, forward_awb, order_no, order_value, stage, payment_mode, scanned_at) values
++ ('00000000-0000-0000-0000-00000000f003','velocity','AF3','9003',100,'to_call','cod', now());
++insert into public.events (source, rto_id, kind, payload) values ('user','00000000-0000-0000-0000-00000000f001','unknown_parcel','{"code":"MISTAKE1"}');
++
++-- today's unknown parcel → deleted, history kept
++select pg_temp.ok((public.delete_unknown_parcel('00000000-0000-0000-0000-00000000f001')->>'deleted')::boolean, 'today unknown parcel deleted');
++select pg_temp.ok(not exists (select 1 from rtos where id='00000000-0000-0000-0000-00000000f001'), 'row gone');
++select pg_temp.ok((select count(*)=1 from events where kind='unknown_parcel_deleted' and payload->>'code'='MISTAKE1' and rto_id is null), 'deleted note kept in history');
++select pg_temp.ok((select count(*)=1 from events where kind='unknown_parcel' and rto_id is null and payload->>'code'='MISTAKE1'), 'old save note kept');
++
++-- refusals
++do $$ begin perform public.delete_unknown_parcel('00000000-0000-0000-0000-00000000f002');
++  raise exception 'FAIL: older unknown deleted';
++exception when others then if sqlerrm not like 'DRC_UNKNOWN_NOT_TODAY%' then raise; end if; raise notice 'ok  older unknown refused'; end $$;
++do $$ begin perform public.delete_unknown_parcel('00000000-0000-0000-0000-00000000f003');
++  raise exception 'FAIL: matched RTO deleted';
++exception when others then if sqlerrm not like 'DRC_NOT_UNKNOWN%' then raise; end if; raise notice 'ok  matched RTO refused'; end $$;
++do $$ begin perform public.delete_unknown_parcel('00000000-0000-0000-0000-00000000ffff');
++  raise exception 'FAIL: missing id accepted';
++exception when others then if sqlerrm not like 'DRC_NOT_FOUND%' then raise; end if; raise notice 'ok  missing id refused'; end $$;
++select pg_temp.ok(exists (select 1 from rtos where id='00000000-0000-0000-0000-00000000f003'), 'matched RTO untouched');
++select pg_temp.ok(exists (select 1 from rtos where id='00000000-0000-0000-0000-00000000f002'), 'older unknown untouched');
++rollback;
+-- 
+2.43.0
+
