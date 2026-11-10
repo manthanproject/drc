@@ -13,6 +13,6 @@ export async function scannedToday() {
 	if (error) throw new Error(`rtos: ${error.message}`);
 	return (data ?? []).map((r) => {
 		const b = BUCKETS[bucketOfStage(r.stage)];
-		return { id: r.id as string, order: r.order_no ? `#${r.order_no}` : `Unknown ${r.scanned_code ?? ''}`, carrier: r.carrier_name as string | null, stage: b?.label ?? r.stage, tone: b?.tone ?? 'mute' };
+		return { id: r.id as string, unknown: r.stage === 'unknown_parcel', order: r.order_no ? `#${r.order_no}` : `Unknown ${r.scanned_code ?? ''}`, carrier: r.carrier_name as string | null, stage: b?.label ?? r.stage, tone: b?.tone ?? 'mute' };
 	});
 }

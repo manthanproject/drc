@@ -6,6 +6,7 @@
 	import StatusPicker from '#lib/components/StatusPicker.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ClearScan from '#lib/components/ClearScan.svelte';
+	import SwipeRow from '#lib/components/SwipeRow.svelte';
 	import ArrivedPicker from '#lib/components/ArrivedPicker.svelte';
 	import { arrivedDay, shortDay } from '#lib/arrived.ts';
 	import { isToday, istTime } from '#lib/scanlog.ts';
@@ -30,6 +31,35 @@
 	let unknownNote = $state('');
 	let savingUnknown = $state(false);
 	let flash = $state('');
+	let swipeOpen = $state<string | null>(null); // the "Scanned today" row swiped open
+	let deleting = $state<string | null>(null);
+
+	/** Swipe left → Delete on a "Scanned today" row. A matched parcel: today's scan is cleared (back as it was before
+	 *  the scan). An unknown parcel saved by mistake: the record is deleted. History keeps a note either way. */
+	async function deleteToday(t: { id: string; order: string; unknown: boolean }) {
+		if (deleting) return;
+		deleting = t.id;
+		findErr = '';
+		flash = '';
+		try {
+			const res = await fetch(`/api/rto/${t.id}/action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: t.unknown ? 'delete_unknown' : 'clear_scan' }) });
+			const b = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				findErr = b?.message ?? 'Could not delete. Nothing changed.';
+				return;
+			}
+			swipeOpen = null;
+			undo = null;
+			if (detail?.rto?.id === t.id) closeCard();
+			flash = t.unknown ? `Deleted ${t.order}.` : `Scan of ${t.order} deleted. The parcel is back as it was before the scan.`;
+			await invalidate('drc:today');
+			scanner?.focusInput();
+		} catch {
+			findErr = 'No connection. Nothing changed.';
+		} finally {
+			deleting = null;
+		}
+	}
 
 	const STAFF = new Set(['scanned', 'inspected', 'to_call', 'reship', 'ready_stock', 'store_credit', 'hold', 'claim', 'closed']);
 
@@ -168,8 +198,9 @@
 
 		<div class="card today-card">
 			<div class="todayhead"><b>Scanned today <span class="muted small">{data.today.length}</span></b><a class="pastlink" href="/scan/log">Past days →</a></div>
+			{#if data.today.length}<p class="muted small swipehint">Swipe a row left to delete a scan made by mistake.</p>{/if}
 			{#each data.today as t (t.id)}
-				<a class="todayrow" href={rtoHref(t.id, '/scan')}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></a>
+				<SwipeRow id={t.id} href={rtoHref(t.id, '/scan')} bind:openId={swipeOpen} busy={deleting === t.id} ondelete={() => deleteToday(t)}><span><b>{t.order}</b> <span class="muted small">{t.carrier ?? ''}</span></span><span class="pill p-{t.tone}">{t.stage}</span></SwipeRow>
 			{:else}
 				<p class="muted small">Nothing yet today.</p>
 			{/each}
@@ -281,7 +312,7 @@
 	.linkbtn { background: none; border: 0; color: var(--acc); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 4px; }
 	.todayhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
 	.pastlink { font-size: 13px; font-weight: 700; color: var(--acc); }
-	.todayrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+	.swipehint { margin: 0 0 6px; }
 	.idle { color: var(--muted); text-align: center; padding: 40px 20px; border-style: dashed; }
 
 	/* Phone: one column, Scanned today last. PC: scan box + today on the left, the parcel on the right */

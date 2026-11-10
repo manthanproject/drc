@@ -54,7 +54,9 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_NOT_SCANNED: [409, 'This parcel is not scanned, nothing to clear. Refresh the page'],
 	DRC_SCAN_NOT_TODAY: [409, "Only today's scans can be cleared. For an older scan use Change status or Mark not arrived"],
 	DRC_REFUND_PAID: [409, 'The refund for this parcel is already marked Done in Refunds, so the scan cannot be cleared'],
-	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again']
+	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again'],
+	DRC_NOT_UNKNOWN: [409, 'This parcel is matched to an order now. Refresh the page'],
+	DRC_UNKNOWN_NOT_TODAY: [409, "Only an unknown parcel saved today can be deleted"]
 };
 
 export function fail(message: string): never {
@@ -109,6 +111,12 @@ export async function runAction(rtoId: string, action: string, args: ActionArgs,
 		const { data, error: e } = await db().rpc('clear_today_scan', { p_rto: rtoId });
 		if (e) fail(e.message.includes('DRC_CLAIM_NOT_DRAFT') ? 'DRC_CLAIM_RAISED_SCAN' : e.message);
 		return data as { event_id: number; cleared: number; to: string };
+	}
+	if (action === 'delete_unknown') {
+		// unknown parcel saved today by mistake → row deleted, History keeps a note
+		const { data, error: e } = await db().rpc('delete_unknown_parcel', { p_rto: rtoId });
+		if (e) fail(e.message);
+		return data as { deleted: boolean; code: string | null; event_id: number };
 	}
 	if (!(ACTIONS as readonly string[]).includes(action)) error(400, 'Unknown action');
 	const { data, error: e } = await db().rpc('rto_action', { p_rto: rtoId, p_action: action, p_args: args });

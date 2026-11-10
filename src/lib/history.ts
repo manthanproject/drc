@@ -95,6 +95,8 @@ export function describe(e: EventRow): { text: string; who: string; muted: boole
 			return { text: `Test scans cleared, back to ${stageName(p.restored_stage)}`, who: 'Staff (SQL)', muted: true };
 		case 'unknown_parcel':
 			return { text: `Saved as unknown parcel (scanned ${p.code ?? '—'})`, who, muted: false };
+		case 'unknown_parcel_deleted':
+			return { text: `Unknown parcel deleted (scanned ${p.code ?? '—'} by mistake)`, who, muted: false };
 		default:
 			return { text: e.kind ?? 'Event', who, muted: false };
 	}
