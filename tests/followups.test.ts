@@ -41,7 +41,7 @@ test('panel dispute follow-up: new ticket, facts, one request, Team Dropy', () =
 		'Order value: ₹1,158',
 		'Issue: Marked "Return - Delivered" on 2 Oct 2026 at 9:01 pm, but it never reached our warehouse.',
 		'',
-		'It still shows "In Review" with no update. Please share the POD (receiver signature, delivery photo, receiver name and ID), or settle the claim for the order value within 24 hours.',
+		'It still shows "In Review" with no update. Please share the POD (receiver signature, delivery photo, receiver name and ID), or settle the claim within 24 hours.',
 		'',
 		'Thanks & Regards,',
 		'Team Dropy',
@@ -49,6 +49,16 @@ test('panel dispute follow-up: new ticket, facts, one request, Team Dropy', () =
 	].join('\n'));
 	assert.ok(!/costech/i.test(t.body));
 	assert.match(followText(c({ reason: 'wrong_product' }), r, 'due').body, /different product inside[\s\S]*approve the claim and issue the credit note/);
+});
+
+test('15 Nov: capped claim shows the real order value and the claim value separately', () => {
+	const big = { ...r, order_no: '3536', forward_awb: '7D140045528', order_value: 3458 };
+	const body = followText(c({ claimed_amount: 3458, expected_amount: 2500 }), big, 'due').body;
+	assert.match(body, /^Order value: ₹3,458$/m);
+	assert.match(body, /^Claim value: ₹2,500$/m);
+	assert.doesNotMatch(body, /Order value: ₹2,500/);
+	// same amount → one line only
+	assert.doesNotMatch(followText(c(), r, 'due').body, /Claim value/);
 });
 
 test('ticket follow-up is a reply on the same ticket', () => {

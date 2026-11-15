@@ -109,14 +109,16 @@ function issueLine(c: FollowClaim, r: TextRto): string {
 const facts = (c: FollowClaim, r: TextRto) => [
 	`Order: ${orderName(r)}`,
 	`AWB: ${r.forward_awb ?? '—'} (${carrierShort(r.carrier_name)})`,
-	`Order value: ${rs(value(c, r))}`,
+	// the order's own value; the claim amount (approved, or capped e.g. ₹2,500 for MDND/lost) only when it differs
+	`Order value: ${rs(num(r.order_value) || value(c, r))}`,
+	...(num(r.order_value) && Math.abs(value(c, r) - num(r.order_value)) >= 1 ? [`Claim value: ${rs(value(c, r))}`] : []),
 	`Issue: ${issueLine(c, r)}`
 ];
 
 const ask = (c: FollowClaim) =>
 	c.reason === 'mdnd' || c.reason === 'lost'
-		? 'share the POD (receiver signature, delivery photo, receiver name and ID), or settle the claim for the order value'
-		: 'approve the claim and issue the credit note for the order value';
+		? 'share the POD (receiver signature, delivery photo, receiver name and ID), or settle the claim'
+		: 'approve the claim and issue the credit note';
 
 export interface PasteText {
 	/** where it goes, e.g. "Reply on ticket #106373" */
