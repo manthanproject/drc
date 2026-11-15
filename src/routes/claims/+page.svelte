@@ -39,6 +39,11 @@
 		const u = undoFromUrl(page.url);
 		if (u) undo = u;
 		sel = page.url.searchParams.get('sel') ?? (window.matchMedia('(min-width: 1024px)').matches ? q.toRaise[0]?.rtoId ?? null : null);
+		// opened from an RTO page after the 48 h panel window: it lives under "Tickets to raise", so tick it there
+		if (sel && !all.some((r) => r.rtoId === sel) && data.tickets.some((g) => g.rows.some((r) => r.rtoId === sel))) {
+			ticked = [sel];
+			view = 'ticket';
+		}
 	});
 
 	// keep ?sel in the address bar (reload keeps the same parcel open); drop ?undo once shown

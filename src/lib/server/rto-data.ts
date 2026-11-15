@@ -28,7 +28,7 @@ export async function allRtos(opts: { returns?: boolean } = {}): Promise<Rto[]> 
 
 async function allClaims(): Promise<Claim[]> {
 	const [c, m] = await Promise.all([
-		db().from('claims').select('id, rto_id, reason, status, deadline_at, approved_at, raised_at, channel, ticket_ref, next_follow_up_at, follow_ups'),
+		db().from('claims').select('id, rto_id, reason, status, deadline_at, approved_at, raised_at, channel, ticket_ref, next_follow_up_at, follow_ups, close_result'),
 		db().from('claim_money').select('claim_id, outstanding')
 	]);
 	if (c.error) throw new Error(`claims: ${c.error.message}`);

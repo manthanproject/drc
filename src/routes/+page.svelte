@@ -16,7 +16,7 @@
 	}
 	// hero: what the "needs action" parcels are, in three groups
 	const NOT_REC = new Set(['mdnd', 'no_date']);
-	const FOLLOW = new Set(['follow_up', 'rejected', 'courier_approved', 'credit_due']);
+	const FOLLOW = new Set(['follow_up', 'rejected', 'courier_approved', 'credit_due', 'withdraw']);
 	const groups = $derived([
 		{ n: d.action.filter((a) => NOT_REC.has(a.kind)).length, label: 'not received' },
 		{ n: d.action.filter((a) => FOLLOW.has(a.kind)).length, label: 'follow-ups' },

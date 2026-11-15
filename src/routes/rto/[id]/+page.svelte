@@ -210,7 +210,7 @@
 			<div class="card o-claim mdndhint">
 				<b>Not received?</b>
 				<p class="small muted">The courier marked it delivered back on {dateShort(r.rto_delivered_at)}. If it is not in the warehouse, draft an MDND dispute today: Velocity only accepts it within 48 hours of that time.</p>
-				<a class="go" href="/claims?sel={r.id}">Draft MDND in Disputes →</a>
+				<a class="go" href="/claims?sel={r.id}">{Date.now() - Date.parse(r.rto_delivered_at) > 48 * 3_600_000 ? 'Past 48 hours: add it to a courier ticket →' : 'Draft MDND in Disputes →'}</a>
 			</div>
 		{/if}
 				{#each claims as c (c.id)}

@@ -86,7 +86,7 @@ test('credit due + follow-up (Phase 5) + draft window from claims table', () => 
 	];
 	const d = buildDashboard([a, b], claims, R, NOW);
 	assert.deepEqual(d.creditDue, { n: 1, value: 2500 });
-	assert.deepEqual(d.action.map((i) => i.kind), ['claim_window', 'follow_up', 'credit_due'], 'raised 1 d ago: not due yet');
+	assert.deepEqual(d.action.map((i) => i.kind), ['claim_window', 'follow_up'], 'raised 1 d ago: not due yet; approved (credit due) is not a task');
 	assert.equal(windowText(d.action[0]), '2 d left');
 	assert.equal(d.action[1].detail, `Raised ${dateShort(ago(3))}, no update yet`);
 	assert.equal(actionWhat(d.action[1]), 'Follow up');
@@ -206,4 +206,29 @@ test('Velocity dispute status (real 6 Oct data: status "raised" = panel "In Revi
 	assert.equal(latestDispute(r)?.id, 'b');
 	// latest is "raised" (not the older rejected one), raised 4 Oct 14:24 UTC → follow up 6 Oct, nothing to do yet
 	assert.equal(needsAction([r], [{ id: 'c', rto_id: r.id, reason: 'mdnd', status: 'raised', deadline_at: '2026-10-06T14:24:00Z', approved_at: null, raised_at: '2026-10-04T14:24:00Z', outstanding: 100 }], R, NOW).length, 0);
+});
+
+test('15 Nov: settled parcels and arrived parcels', async () => {
+	const { actionGroup, actionWhat } = await import('../src/lib/dashboard.ts');
+	// Velocity paid it as lost (claim closed, credited): the parcel still "coming back" is not raised again
+	const paid = rto({ stage: 'in_flight', last_movement_at: ago(45) });
+	// written off: same, no more "not received"
+	const off = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(20) });
+	// withdrawn because it arrived is NOT a settlement: a later problem still shows
+	const wd = rto({ stage: 'awaiting_receipt', rto_delivered_at: ago(20) });
+	// open MDND claim, but the parcel was scanned in since → withdraw item, not a follow-up / rejected
+	const back = rto({ stage: 'to_call', scanned_at: ago(1), disputes: [{ id: 'd', status: 'rejected', dispute_type: 'mdnd', raised_at: ago(9) }] });
+	// wrong-product claim on a scanned parcel is normal: no withdraw item
+	const wp = rto({ stage: 'claim', scanned_at: ago(9) });
+	const claims: Claim[] = [
+		{ id: 'p', rto_id: paid.id, reason: 'lost', status: 'closed', close_result: 'credited_full', deadline_at: null, approved_at: ago(2), outstanding: 0 },
+		{ id: 'o', rto_id: off.id, reason: 'mdnd', status: 'closed', close_result: 'written_off', deadline_at: null, approved_at: null, outstanding: 0 },
+		{ id: 'w', rto_id: wd.id, reason: 'mdnd', status: 'closed', close_result: 'withdrawn', deadline_at: null, approved_at: null, outstanding: 0 },
+		{ id: 'b', rto_id: back.id, reason: 'mdnd', status: 'raised', deadline_at: null, approved_at: null, raised_at: ago(9), outstanding: 2500 },
+		{ id: 'x', rto_id: wp.id, reason: 'wrong_product', status: 'raised', deadline_at: null, approved_at: null, raised_at: ago(1), outstanding: 900 }
+	];
+	const a = needsAction([paid, off, wd, back, wp], claims, R, NOW);
+	assert.deepEqual(a.map((i) => [i.kind, i.rto!.id]), [['withdraw', back.id], ['mdnd', wd.id]]);
+	assert.equal(actionWhat(a[0]), 'Arrived: withdraw claim');
+	assert.equal(actionGroup(a[0]), 'followup');
 });

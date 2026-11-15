@@ -103,6 +103,8 @@ export interface Claim {
 	ticket_ref?: string | null;
 	next_follow_up_at?: string | null;
 	follow_ups?: number | null;
+	/** closed claims: how they ended (credited_full, short_paid_accepted, withdrawn, written_off, rejected_final) */
+	close_result?: string | null;
 }
 
 export interface Rules {
@@ -243,7 +245,7 @@ const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated
 
 // ---------- needs action ----------
 
-export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found' | 'follow_up' | 'rejected' | 'courier_approved';
+export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found' | 'follow_up' | 'rejected' | 'courier_approved' | 'withdraw';
 
 export interface ActionItem {
 	key: string;
@@ -274,7 +276,7 @@ function windowFields(deadline: number | null, now: number) {
 
 const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Tone => {
 	if (i.kind === 'reship_found' || i.kind === 'courier_approved') return 'ok';
-	if (i.kind === 'rejected') return 'bad';
+	if (i.kind === 'rejected' || i.kind === 'withdraw') return 'bad';
 	if (i.kind === 'follow_up') return 'warn';
 	if (i.daysLeft !== null) return i.daysLeft <= 2 ? 'bad' : 'warn';
 	if (i.kind === 'lost' || i.kind === 'stuck' || i.kind === 'unknown') return 'bad';
@@ -287,11 +289,13 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 	const byId = new Map(rtos.map((r) => [r.id, r]));
 	// a courier ticket (Phase 4) is an open claim on a parcel that keeps its stage: don't ask again
 	const claimed = new Set(claims.filter((c) => OPEN_CLAIM.has(c.status)).map((c) => c.rto_id));
+	// a parcel whose claim is closed (paid, or written off) is settled: never ask to raise it again
+	const settled = new Set(claims.filter((c) => c.status === 'closed' && c.close_result && c.close_result !== 'withdrawn').map((c) => c.rto_id));
 	const push = (i: Omit<ActionItem, 'tone' | 'href' | 'nonDropy'>) =>
 		out.push({ ...i, tone: toneFor(i), href: i.rto ? trackingUrl(i.rto) : null, nonDropy: i.rto ? isNonDropy(i.rto) : false });
 
 	for (const r of rtos) {
-		if (claimed.has(r.id)) continue;
+		if (claimed.has(r.id) || settled.has(r.id)) continue;
 		if (isStuck(r, now, rules)) {
 			const t = lastMove(r)!;
 			push({ key: `stuck-${r.id}`, kind: 'stuck', rto: r, title: `${orderLabel(r)} likely lost`,
@@ -330,12 +334,16 @@ export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: num
 		const r = byId.get(c.rto_id) ?? null;
 		const label = r ? orderLabel(r) : 'Claim';
 		const owed = num(c.outstanding);
-		if (c.status === 'approved' && owed > 0) {
-			const t = ms(c.approved_at);
-			push({ key: `cn-${c.id}`, kind: 'credit_due', rto: r, title: `${label} credit note`,
-				detail: 'Approved, money not received', amount: owed, ageNote: t === null ? undefined : `Approved ${dateShort(c.approved_at)}`,
-				ageDays: t === null ? null : daysSince(t, now), ...windowFields(null, now) });
-		} else if (['raised', 'waiting', 'escalated'].includes(c.status)) {
+		// approved, money not in yet: nothing to do but wait; Home's banner and Money show these (not a task)
+		if (c.status === 'approved') continue;
+		// a not-received claim on a parcel that has since been scanned in: withdraw it, never chase it
+		if (r?.scanned_at && (c.reason === 'mdnd' || c.reason === 'lost') && ['draft', 'raised', 'waiting', 'escalated'].includes(c.status)) {
+			push({ key: `wd-${c.id}`, kind: 'withdraw', rto: r, title: `${label} arrived`,
+				detail: `Scanned in ${dateShort(r.scanned_at)}: withdraw the not-received claim`, amount: owed,
+				ageDays: null, ageNote: c.raised_at ? `Raised ${dateShort(c.raised_at)}` : 'Not raised yet', ...windowFields(null, now) });
+			continue;
+		}
+		if (['raised', 'waiting', 'escalated'].includes(c.status)) {
 			// Phase 5: raised claims are chased by follow-up date, not by the dispute window
 			const st = followState(c, r, rules, now);
 			if (!st || st.kind === 'waiting' || st.kind === 'credit_due') continue;
@@ -597,6 +605,7 @@ export function actionGroup(i: Pick<ActionItem, 'kind'>): ActionGroup {
 		case 'follow_up':
 		case 'rejected':
 		case 'courier_approved':
+		case 'withdraw':
 			return 'followup';
 		case 'reship_found':
 			return 'reship';
@@ -617,6 +626,7 @@ export function actionWhat(i: ActionItem): string {
 		case 'rejected': return 'Rejected, escalate';
 		case 'courier_approved': return 'Approved, mark it';
 		case 'credit_due': return 'Credit note due';
+		case 'withdraw': return 'Arrived: withdraw claim';
 		case 'reship_found': return `Re-shipped as #${i.rto?.reship_order_no ?? ''}?`;
 		case 'lost': return 'Marked lost';
 		case 'stuck': return 'Likely lost';
