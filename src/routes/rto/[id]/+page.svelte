@@ -12,10 +12,10 @@
 	import ClearScan from '#lib/components/ClearScan.svelte';
 	import ArrivedEdit from '#lib/components/ArrivedEdit.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
-	import RtoReason from '#lib/components/RtoReason.svelte';
+	import ReasonPanel from '#lib/components/ReasonPanel.svelte';
 	import { addressLines } from '#lib/products.ts';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
-	import { rtoReason } from '#lib/reason.ts';
+	import { rtoReason, lastEventRedundant } from '#lib/reason.ts';
 	import { istTime, isToday } from '#lib/scanlog.ts';
 	import { describe } from '#lib/history.ts';
 	import { velocityRefunded } from '#lib/returns-map.ts';
@@ -172,19 +172,19 @@
 	<main class="content stack cols">
 		<div class="left">
 		<div class="card o-details">
+			{#if !isReturn && r.stage !== 'unknown_parcel'}<ReasonPanel {exact} code={reason} />{/if}
 			<div class="dtop">
 			<dl>
 				<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
 				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 				{#if MONEY[r.refund_state]}<dt>Money</dt><dd><span class="pill {MONEY[r.refund_state][1]}">{MONEY[r.refund_state][0]} {inr(paid)}</span></dd>{/if}
 				{#each data.refunds as f (f.id)}<dt>Refund</dt><dd><a class="rfl" href="/refunds?order={encodeURIComponent(f.order_no)}"><span class="pill {RSTATUS[f.status].pill}">{RSTATUS[f.status].label}</span>{f.amount != null ? ` ${inr(Number(f.amount))}` : ''}{f.via ? ` · ${RVIA[f.via]}` : ''} ›</a></dd>{/each}
-				{#if !isReturn}<dt>RTO reason</dt><dd><RtoReason {exact} code={reason} /></dd>{/if}
 				{#if isReturn}<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>{/if}
 				{#if isReturn && velocityRefunded(r.vref)}<dt>Velocity refund</dt><dd><span class="pill p-bad">{r.vref}</span><small class="sub">We refund by PayU or bank only: check Velocity did not pay this customer too</small></dd>{/if}
-				<dt>{isReturn ? 'Return courier' : 'Courier'}</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
+				<dt>{isReturn ? 'Return courier' : 'Courier'}</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''}<small class="sub mono">{r.forward_awb}</small>{/if}</dd>
 				{#if r.rto_delivered_at}<dt>{isReturn ? 'Delivered to warehouse' : 'Delivered back'}</dt><dd>{dateShort(r.rto_delivered_at)}</dd>{/if}
 				{#if r.scanned_at && r.stage !== 'unknown_parcel'}<dt>Arrived at warehouse</dt><dd><ArrivedEdit rto={r} onsaved={() => invalidateAll()} /></dd>{/if}
-				{#if r.last_event_text}<dt>Last courier event</dt><dd>{r.last_event_text}{r.last_event_at ? `, ${dateShort(r.last_event_at)}` : ''}</dd>{/if}
+				{#if r.last_event_text && !lastEventRedundant(r.last_event_text, exact?.text ?? null, !!r.rto_delivered_at)}<dt>Last courier event</dt><dd>{r.last_event_text}{r.last_event_at ? `, ${dateShort(r.last_event_at)}` : ''}</dd>{/if}
 				{#if r.reship_date}<dt>Re-ship date</dt><dd>{dateShort(r.reship_date + 'T12:00:00Z')}</dd>{/if}
 			</dl>
 			{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
@@ -333,9 +333,9 @@
 		.topbar h1 { flex: none; }
 	}
 	.back { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 22px; }
-	dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 13.5px; }
+	dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 14px; }
 	dt { color: var(--muted); }
-	dd { margin: 0; font-weight: 600; text-align: right; }
+	dd { margin: 0; font-weight: 600; min-width: 0; }
 	.sub { display: block; font-weight: 500; font-size: 12.5px; color: var(--muted); }
 	.addr { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--sunk); font-size: 13px; line-height: 1.45; }
 	.addr .small { display: block; }

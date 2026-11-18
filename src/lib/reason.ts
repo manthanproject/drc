@@ -40,7 +40,7 @@ export function rtoReason(r: { kind?: string | null; rto_reason?: string | null;
 
 export interface Activity { date?: string | null; activity?: string | null; location?: string | null }
 export interface ReasonHit { text: string; at: string | null; location: string | null }
-export interface ExactReason { text: string; at: string | null; location: string | null; earlier: ReasonHit[] }
+export interface ExactReason { text: string; at: string | null; location: string | null; earlier: ReasonHit[]; fails: number }
 
 /** Progress / movement scans: never a reason. */
 const NOT_REASON = /misroute|cut-?off|out ?for ?delivery|scheduled for|reattempt initiated|in ?transit|^\s*return\b|returninitiated|\brto\b|picked|pickup|booked|arrived|departed|processing|at destination|reached at|fdm|manifest|ready ?for|^\s*delivered\s*$/i;
@@ -81,5 +81,13 @@ export function exactReason(activities: Activity[] | null | undefined): ExactRea
 		const e = tidyActivity(fails[i].raw);
 		if (e.toLowerCase() !== text.toLowerCase() && !earlier.some((x) => x.text.toLowerCase() === e.toLowerCase())) earlier.push({ text: e, at: fails[i].at, location: fails[i].location });
 	}
-	return { text, at: last.at, location: last.location, earlier };
+	return { text, at: last.at, location: last.location, earlier, fails: fails.length };
+}
+
+/** True when the courier's last event just repeats the reason, or only says the return was delivered (shown elsewhere). */
+export function lastEventRedundant(last: string | null | undefined, reason: string | null | undefined, deliveredBack: boolean): boolean {
+	const l = tidyActivity(String(last ?? '')).toLowerCase();
+	if (!l) return true;
+	if (reason && l === tidyActivity(reason).toLowerCase()) return true;
+	return deliveredBack && /return\s*-?\s*deliver/.test(l);
 }

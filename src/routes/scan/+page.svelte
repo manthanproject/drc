@@ -7,7 +7,7 @@
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ClearScan from '#lib/components/ClearScan.svelte';
 	import SwipeRow from '#lib/components/SwipeRow.svelte';
-	import RtoReason from '#lib/components/RtoReason.svelte';
+	import ReasonPanel from '#lib/components/ReasonPanel.svelte';
 	import ArrivedPicker from '#lib/components/ArrivedPicker.svelte';
 	import { arrivedDay, shortDay } from '#lib/arrived.ts';
 	import { isToday, istTime } from '#lib/scanlog.ts';
@@ -246,18 +246,16 @@
 				<div class="row1"><span class="small muted">Matched {code ? `“${code}”` : ''}</span>{#if r.kind === 'customer_return'}<span class="pill p-ret">Customer return</span>{:else if bucket}<span class="pill p-{bucket.tone}">{bucket.label}</span>{/if}</div>
 				<div class="row2"><span class="ord">{orderLabel(r)}</span><span class="money big">{inr(num(r.order_value))}</span></div>
 				{#if already}<div class="warnline">Already processed: {bucket?.label}{isToday(r.scanned_at, Date.now()) ? ` (scanned today ${istTime(r.scanned_at)})` : ''}. Pick again only to change it{#if isToday(r.scanned_at, Date.now())}, or clear the scan below{/if}.</div>{/if}
+				{#if r.kind !== 'customer_return' && r.stage !== 'unknown_parcel'}<ReasonPanel {exact} code={reason} />{/if}
 				<div class="mbody">
 				<dl>
-					<dt>Courier</dt><dd>{r.carrier_name ?? '—'} <span class="mono">{r.forward_awb ?? ''}</span></dd>
+					<dt>Courier</dt><dd>{r.carrier_name ?? '—'}{#if r.forward_awb}<small class="sub mono">{r.forward_awb}</small>{/if}</dd>
 					<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 					<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
 					{#if r.kind === 'customer_return'}
 						<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>
 						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>Delivered to warehouse {dateShort(r.rto_delivered_at)}</dd>{/if}
-					{:else}
-						<dt>RTO reason</dt><dd><RtoReason {exact} code={reason} /></dd>
-						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
-					{/if}
+					{:else if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
 					{#if r.scanned_at && arrivedDay(r)}<dt>Arrived</dt><dd>{shortDay(arrivedDay(r)!)}{#if r.received_on}<small class="sub">scanned {dateShort(r.scanned_at)}</small>{/if}</dd>{/if}
 				</dl>
 				{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
@@ -311,9 +309,9 @@
 	.ord { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
 	.big { font-size: 18px; }
 	.warnline { padding: 8px 10px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-	dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13.5px; }
+	dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 14px; }
 	dt { color: var(--muted); }
-	dd { margin: 0; font-weight: 600; text-align: right; }
+	dd { margin: 0; font-weight: 600; min-width: 0; }
 	.sub { display: block; font-weight: 500; font-size: 12.5px; color: var(--muted); }
 	.addr { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--sunk); font-size: 13px; line-height: 1.45; }
 	.addr .small { display: block; }

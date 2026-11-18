@@ -25,7 +25,7 @@ test('rtoReason: rto_reason first, then NDR reason, never for customer returns',
 });
 
 import { readFileSync } from 'node:fs';
-import { exactReason, tidyActivity } from '../src/lib/reason.ts';
+import { exactReason, tidyActivity, lastEventRedundant } from '../src/lib/reason.ts';
 
 // Real Velocity /order-tracking activities (18 Nov 2026): #1708-2 (Amazon) and #6709 (DTDC)
 const FIX = JSON.parse(readFileSync(new URL('./fixtures-velocity-tracking.json', import.meta.url), 'utf8'));
@@ -35,6 +35,7 @@ test('exactReason: Amazon #1708-2 → recipient refused, before the first return
 	assert.equal(r.text, 'Recipient refused to accept the shipment and provided verification');
 	assert.equal(r.at, '2026-09-07 18:23:01');
 	assert.deepEqual(r.earlier.map((e) => e.text), ['Delivery was attempted but unsuccessful']);
+	assert.equal(r.fails, 6);
 });
 
 test('exactReason: DTDC #6709 → receiver refused, earlier door lock; misroutes ignored', () => {
@@ -43,6 +44,7 @@ test('exactReason: DTDC #6709 → receiver refused, earlier door lock; misroutes
 	assert.equal(r.at, '2026-11-02 15:17:00');
 	assert.equal(r.location, 'KONDIVITA LANE, MUMBAI');
 	assert.deepEqual(r.earlier.map((e) => e.text), ['Office closed or door lock']);
+	assert.equal(r.fails, 2);
 });
 
 test('exactReason: nothing usable → null; tidyActivity cleans codes and caps', () => {
@@ -50,4 +52,13 @@ test('exactReason: nothing usable → null; tidyActivity cleans codes and caps',
 	assert.equal(exactReason(null), null);
 	assert.equal(tidyActivity('RECEIVER REFUSED DELIVERY(CIR)'), 'Receiver refused delivery');
 	assert.equal(tidyActivity('Consignee not available.'), 'Consignee not available');
+});
+
+test('lastEventRedundant: hides repeats and plain "Return - Delivered"', () => {
+	const why = 'Recipient refused to accept the shipment and provided verification';
+	assert.equal(lastEventRedundant('Recipient refused to accept the shipment and provided verification.', why, false), true);
+	assert.equal(lastEventRedundant('Return - Delivered', 'Receiver refused delivery', true), true);
+	assert.equal(lastEventRedundant('Return - Delivered', null, false), false);
+	assert.equal(lastEventRedundant('Return - In Transit', why, true), false);
+	assert.equal(lastEventRedundant(null, why, false), true);
 });
