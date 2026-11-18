@@ -1,0 +1,651 @@
+{
+"372181028419": [
+{
+"date": "2026-09-29 11:44:08",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-29 11:44:05",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-29 11:35:22",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-24 17:42:17",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-24 11:55:37",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-24 11:55:35",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-24 11:49:49",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-23 13:41:31",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-23 13:41:21",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-23 10:34:24",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-22 11:29:29",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-22 11:29:27",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-21 16:27:06",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-21 13:23:40",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-21 13:23:38",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-21 12:36:35",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-19 11:27:47",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-19 11:27:44",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-18 13:52:04",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-18 13:52:02",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-18 11:38:23",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-18 11:38:20",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-18 11:04:41",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-15 13:47:38",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-15 13:47:37",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-15 11:41:59",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-15 11:41:55",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-13 15:48:12",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-13 07:45:30",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-12 22:43:14",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-12 16:32:46",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-12 12:25:47",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-10 02:27:00",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-09 17:45:29",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-09 14:12:48",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-09 00:46:56",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-08 23:22:54",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-08 23:22:54",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-08 23:22:47",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-08 22:12:28",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-08 15:25:17",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-07 18:23:01",
+"activity": "Recipient refused to accept the shipment and provided verification.",
+"location": ""
+},
+{
+"date": "2026-09-07 18:23:01",
+"activity": "ReturnInitiated",
+"location": ""
+},
+{
+"date": "2026-09-07 16:39:07",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-07 14:47:22",
+"activity": "Delivery was attempted but unsuccessful.",
+"location": ""
+},
+{
+"date": "2026-09-07 07:19:36",
+"activity": "Delivery was attempted but unsuccessful.",
+"location": ""
+},
+{
+"date": "2026-09-07 04:55:13",
+"activity": "Delivery was attempted but unsuccessful.",
+"location": ""
+},
+{
+"date": "2026-09-06 19:21:12",
+"activity": "Delivery was attempted but unsuccessful.",
+"location": ""
+},
+{
+"date": "2026-09-06 17:51:36",
+"activity": "Delivery was attempted but unsuccessful.",
+"location": ""
+},
+{
+"date": "2026-09-06 17:18:36",
+"activity": "OutForDelivery",
+"location": ""
+},
+{
+"date": "2026-09-06 17:18:01",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 11:47:16",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 11:44:36",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 11:42:49",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 11:37:29",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 11:19:10",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 09:36:50",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 08:29:54",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 05:26:18",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 05:24:26",
+"activity": "Package arrived at the local facility.",
+"location": ""
+},
+{
+"date": "2026-09-06 04:13:23",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-04 16:08:32",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-02 07:19:25",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-01 22:40:44",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-01 19:14:39",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-01 19:14:32",
+"activity": "Departed",
+"location": ""
+},
+{
+"date": "2026-09-01 17:17:19",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-01 17:14:50",
+"activity": "ArrivedAtCarrierFacility",
+"location": ""
+},
+{
+"date": "2026-09-01 15:24:38",
+"activity": "PickupDone",
+"location": ""
+},
+{
+"date": "2026-08-31 19:45:36",
+"activity": "ReadyForReceive",
+"location": ""
+}
+],
+"7D144181238": [
+{
+"date": "2026-11-06 21:58:00",
+"activity": "Return - Delivered",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-06 18:33:00",
+"activity": "Return - Out for Delivery",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-06 18:32:00",
+"activity": "RTO FDM Prepared",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-04 14:46:00",
+"activity": "Return - at destination",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-04 14:45:00",
+"activity": "Return - In Transit",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-04 14:28:00",
+"activity": "Return - In Transit",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-04 11:50:00",
+"activity": "Return - In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-11-04 06:08:00",
+"activity": "Return - Misroute",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-11-03 21:29:00",
+"activity": "Return - In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-11-03 19:22:00",
+"activity": "Return - In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-11-03 16:53:00",
+"activity": "Return - In Transit",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-03 16:49:00",
+"activity": "Return - In Transit",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-03 12:19:00",
+"activity": "Return - Inititaited ",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-03 11:30:00",
+"activity": "At Destination",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-03 11:28:00",
+"activity": "At Destination",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-03 05:37:00",
+"activity": "At Destination",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-02 23:06:00",
+"activity": "At Destination",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-02 22:11:00",
+"activity": "At Destination",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-02 22:11:00",
+"activity": "At Processing Center",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-02 21:03:00",
+"activity": "RTB Manifested",
+"location": "MAROL BRANCH , "
+},
+{
+"date": "2026-11-02 15:24:00",
+"activity": "RTO Approved",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-02 15:21:00",
+"activity": "",
+"location": " , "
+},
+{
+"date": "2026-11-02 15:17:00",
+"activity": "RECEIVER REFUSED DELIVERY(CIR)",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-11-02 15:17:00",
+"activity": "Return to Processing Center",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-11-02 11:41:00",
+"activity": "Out for Delivery",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-11-02 07:18:00",
+"activity": "Scheduled for Delivery",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-10-31 21:24:00",
+"activity": "",
+"location": " , "
+},
+{
+"date": "2026-10-31 21:24:00",
+"activity": "Reattempt Initiated",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-31 20:21:00",
+"activity": "",
+"location": " , "
+},
+{
+"date": "2026-10-31 20:19:00",
+"activity": "OFFICE CLOSED OR DOOR LOCK-(CIR)",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-10-31 16:25:00",
+"activity": "Out for Delivery",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-10-31 16:06:00",
+"activity": "Reached at Delivery Centre",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-10-31 14:54:00",
+"activity": "Scheduled for Delivery",
+"location": "KONDIVITA LANE , MUMBAI"
+},
+{
+"date": "2026-10-31 07:58:00",
+"activity": "Shipment Misroute",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-31 07:32:00",
+"activity": "In Transit",
+"location": "MAROL BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-31 05:03:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-30 15:48:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-30 09:41:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-30 01:15:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-30 00:47:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-30 00:13:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-29 13:24:00",
+"activity": "In Transit",
+"location": "FORT BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-29 12:55:00",
+"activity": "In Transit",
+"location": "FORT BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-29 11:07:00",
+"activity": "WRONG PINCODE MISROUTE",
+"location": "FORT BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-29 08:44:00",
+"activity": "At Processing Center",
+"location": "FORT BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-29 08:43:00",
+"activity": "In Transit",
+"location": "FORT BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-29 07:43:00",
+"activity": "In Transit",
+"location": "FORT BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-29 05:39:00",
+"activity": "RECEIVED AFTER CUT-OFF",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-29 05:29:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-29 03:42:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-29 03:36:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-29 02:39:00",
+"activity": "In Transit",
+"location": "MUMBAI SAKINAKA APEX , MUMBAI"
+},
+{
+"date": "2026-10-28 23:20:00",
+"activity": "In Transit",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-28 23:02:00",
+"activity": "In Transit",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-28 20:51:00",
+"activity": "Shipment Booked",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-28 19:42:00",
+"activity": "Picked up",
+"location": "SEA WOOD , MUMBAI"
+},
+{
+"date": "2026-10-28 17:28:00",
+"activity": "Pickup Awaited",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-28 17:28:00",
+"activity": "Pickup scheduled",
+"location": "VASHI BRANCH , MUMBAI"
+},
+{
+"date": "2026-10-28 17:28:00",
+"activity": "Pickup Requested",
+"location": "VASHI BRANCH , MUMBAI"
+}
+]
+}

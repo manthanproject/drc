@@ -7,6 +7,7 @@
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import ClearScan from '#lib/components/ClearScan.svelte';
 	import SwipeRow from '#lib/components/SwipeRow.svelte';
+	import RtoReason from '#lib/components/RtoReason.svelte';
 	import ArrivedPicker from '#lib/components/ArrivedPicker.svelte';
 	import { arrivedDay, shortDay } from '#lib/arrived.ts';
 	import { isToday, istTime } from '#lib/scanlog.ts';
@@ -28,6 +29,7 @@
 	let matches = $state<Slim[] | null>(null);
 	let detail = $state<any>(null);
 	let packing = $state<{ state: string; url?: string } | null>(null);
+	let exact = $state<any>(null);
 	let undo = $state<{ text: string; eventId: number } | null>(null);
 	let unknownNote = $state('');
 	let savingUnknown = $state(false);
@@ -69,6 +71,7 @@
 		matches = null;
 		detail = null;
 		packing = null;
+		exact = null;
 		findErr = '';
 		flash = '';
 		finding = true;
@@ -87,6 +90,7 @@
 
 	async function open(id: string) {
 		packing = null;
+		exact = null;
 		// phone back closes this card instead of leaving Scan: one history entry while a card is open
 		if (!cardEntry) {
 			pushState('', { card: id });
@@ -99,6 +103,7 @@
 		}
 		detail = await r.json();
 		fetch(`/api/rto/${id}/packing`).then((p) => p.json()).then((p) => (packing = p)).catch(() => (packing = { state: 'error' }));
+		if (detail?.rto?.kind !== 'customer_return') fetch(`/api/rto/${id}/reason`).then((p) => p.json()).then((p) => (exact = p)).catch(() => (exact = { state: 'error' }));
 	}
 
 	/** Close the card and drop its history entry, so back from here goes where it went before the scan. */
@@ -250,7 +255,7 @@
 						<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>
 						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>Delivered to warehouse {dateShort(r.rto_delivered_at)}</dd>{/if}
 					{:else}
-						<dt>RTO reason</dt><dd>{reason ?? '—'}</dd>
+						<dt>RTO reason</dt><dd><RtoReason {exact} code={reason} /></dd>
 						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
 					{/if}
 					{#if r.scanned_at && arrivedDay(r)}<dt>Arrived</dt><dd>{shortDay(arrivedDay(r)!)}{#if r.received_on}<small class="sub">scanned {dateShort(r.scanned_at)}</small>{/if}</dd>{/if}

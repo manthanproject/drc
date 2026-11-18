@@ -12,6 +12,7 @@
 	import ClearScan from '#lib/components/ClearScan.svelte';
 	import ArrivedEdit from '#lib/components/ArrivedEdit.svelte';
 	import ItemList from '#lib/components/ItemList.svelte';
+	import RtoReason from '#lib/components/RtoReason.svelte';
 	import { addressLines } from '#lib/products.ts';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
 	import { rtoReason } from '#lib/reason.ts';
@@ -55,6 +56,7 @@
 		}
 	}
 	let packing = $state<{ state: string; url?: string } | null>(null);
+	let exact = $state<any>(null);
 	let busy = $state(false);
 	let err = $state('');
 
@@ -85,6 +87,8 @@
 			replaceState(clean, {});
 		}
 		if (r.forward_awb) fetch(`/api/rto/${r.id}/packing`).then((x) => x.json()).then((x) => (packing = x)).catch(() => (packing = { state: 'error' }));
+		if (r.forward_awb && r.kind !== 'customer_return') fetch(`/api/rto/${r.id}/reason`).then((x) => x.json()).then((x) => (exact = x)).catch(() => (exact = { state: 'error' }));
+		else exact = { state: 'none' };
 	});
 
 	async function act(action: string) {
@@ -174,7 +178,7 @@
 				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 				{#if MONEY[r.refund_state]}<dt>Money</dt><dd><span class="pill {MONEY[r.refund_state][1]}">{MONEY[r.refund_state][0]} {inr(paid)}</span></dd>{/if}
 				{#each data.refunds as f (f.id)}<dt>Refund</dt><dd><a class="rfl" href="/refunds?order={encodeURIComponent(f.order_no)}"><span class="pill {RSTATUS[f.status].pill}">{RSTATUS[f.status].label}</span>{f.amount != null ? ` ${inr(Number(f.amount))}` : ''}{f.via ? ` · ${RVIA[f.via]}` : ''} ›</a></dd>{/each}
-				{#if !isReturn}<dt>RTO reason</dt><dd>{reason ?? '—'}</dd>{/if}
+				{#if !isReturn}<dt>RTO reason</dt><dd><RtoReason {exact} code={reason} /></dd>{/if}
 				{#if isReturn}<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>{/if}
 				{#if isReturn && velocityRefunded(r.vref)}<dt>Velocity refund</dt><dd><span class="pill p-bad">{r.vref}</span><small class="sub">We refund by PayU or bank only: check Velocity did not pay this customer too</small></dd>{/if}
 				<dt>{isReturn ? 'Return courier' : 'Courier'}</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>
