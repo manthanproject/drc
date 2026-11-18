@@ -14,6 +14,7 @@
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, isSheetOnly, paymentBreakdown, disputeStatus, disputeType } from '#lib/dashboard.ts';
+	import { rtoReason } from '#lib/reason.ts';
 	import { istTime, isToday } from '#lib/scanlog.ts';
 	import { describe } from '#lib/history.ts';
 	import { velocityRefunded } from '#lib/returns-map.ts';
@@ -63,6 +64,7 @@
 		due: ['Refund due', 'p-bad'], done: ['Refunded', 'p-ok'], credit_due: ['Store credit to give', 'p-warn'], credit_done: ['Store credit given', 'p-ok']
 	};
 	const pay = $derived(paymentBreakdown(r));
+	const reason = $derived(rtoReason(r));
 	const disputes = $derived([...(Array.isArray(r.disputes) ? r.disputes : [])].sort((a, b) => String(b.raised_at ?? '').localeCompare(String(a.raised_at ?? ''))));
 	const velocityUrl = $derived(`https://dashboard.velocity.in/shipping/orders?order_status=all&search=${encodeURIComponent(r.order_no ?? '')}`);
 	const addr = $derived(addressLines(r.ship));
@@ -172,6 +174,7 @@
 				<dt>Payment</dt><dd>{pay.label}{#if pay.detail}<small class="sub">{pay.detail}</small>{/if}</dd>
 				{#if MONEY[r.refund_state]}<dt>Money</dt><dd><span class="pill {MONEY[r.refund_state][1]}">{MONEY[r.refund_state][0]} {inr(paid)}</span></dd>{/if}
 				{#each data.refunds as f (f.id)}<dt>Refund</dt><dd><a class="rfl" href="/refunds?order={encodeURIComponent(f.order_no)}"><span class="pill {RSTATUS[f.status].pill}">{RSTATUS[f.status].label}</span>{f.amount != null ? ` ${inr(Number(f.amount))}` : ''}{f.via ? ` · ${RVIA[f.via]}` : ''} ›</a></dd>{/each}
+				{#if !isReturn}<dt>RTO reason</dt><dd>{reason ?? '—'}</dd>{/if}
 				{#if isReturn}<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>{/if}
 				{#if isReturn && velocityRefunded(r.vref)}<dt>Velocity refund</dt><dd><span class="pill p-bad">{r.vref}</span><small class="sub">We refund by PayU or bank only: check Velocity did not pay this customer too</small></dd>{/if}
 				<dt>{isReturn ? 'Return courier' : 'Courier'}</dt><dd>{#if isSheetOnly(r)}From old sheet, no AWB{:else}{r.carrier_name ?? ''} <span class="mono">{r.forward_awb}</span>{/if}</dd>

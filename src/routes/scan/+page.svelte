@@ -12,6 +12,7 @@
 	import { isToday, istTime } from '#lib/scanlog.ts';
 	import ItemList from '#lib/components/ItemList.svelte';
 	import { addressLines } from '#lib/products.ts';
+	import { rtoReason } from '#lib/reason.ts';
 	import { rtoHref, claimHref, undoFromUrl } from '#lib/scan.ts';
 	import { onMount } from 'svelte';
 	import { BUCKETS, bucketOf, DEFAULT_RULES, inr, num, orderLabel, dateShort, trackingUrl, paymentBreakdown } from '#lib/dashboard.ts';
@@ -175,6 +176,7 @@
 	const bucket = $derived(r ? BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)] : null);
 	const already = $derived(r && STAFF.has(r.stage));
 	const pay = $derived(r ? paymentBreakdown(r) : { label: '', detail: null });
+	const reason = $derived(rtoReason(r));
 	const addr = $derived(r ? addressLines(r.ship) : []);
 </script>
 
@@ -247,7 +249,10 @@
 					{#if r.kind === 'customer_return'}
 						<dt>Return</dt><dd>{r.return_id ?? '—'}{#if r.return_reason}<small class="sub">Customer's reason: {r.return_reason}</small>{/if}</dd>
 						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>Delivered to warehouse {dateShort(r.rto_delivered_at)}</dd>{/if}
-					{:else if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
+					{:else}
+						<dt>RTO reason</dt><dd>{reason ?? '—'}</dd>
+						{#if r.rto_delivered_at}<dt>Courier says</dt><dd>RTO delivered {dateShort(r.rto_delivered_at)}</dd>{/if}
+					{/if}
 					{#if r.scanned_at && arrivedDay(r)}<dt>Arrived</dt><dd>{shortDay(arrivedDay(r)!)}{#if r.received_on}<small class="sub">scanned {dateShort(r.scanned_at)}</small>{/if}</dd>{/if}
 				</dl>
 				{#if addr.length}<div class="addr"><span class="small muted">Address</span>{#each addr as line}<div>{line}</div>{/each}</div>{/if}
