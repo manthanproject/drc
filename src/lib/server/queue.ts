@@ -1,5 +1,5 @@
 import { db } from './supabase.ts';
-import { allRtos, settings } from './rto-data.ts';
+import { allRtos, claimOnlyRtos, settings } from './rto-data.ts';
 import { buildQueue, type QueueClaim } from '#lib/queue.ts';
 import { evidenceProgress } from '#lib/claims.ts';
 import { buildTickets } from '#lib/tickets.ts';
@@ -25,13 +25,16 @@ export interface PaneRto {
 
 /** Disputes queue: open claims + MDND candidates, with what the right-hand pane needs. Read only. */
 export async function loadQueue() {
-	const [rtos, c, s] = await Promise.all([
+	const [listed, c, s] = await Promise.all([
 		allRtos(),
 		db().from('claims').select(CLAIM_COLS).in('status', ['draft', 'raised', 'waiting', 'approved', 'escalated']),
 		settings()
 	]);
 	if (c.error) throw new Error(`claims: ${c.error.message}`);
 	const claims = (c.data ?? []) as unknown as QueueClaim[];
+	// + customer returns not in stage 'claim' that hold an open claim (ticket on the return leg): label those claims
+	const extra = await claimOnlyRtos(listed, claims);
+	const rtos = extra.length ? [...listed, ...extra] : listed;
 	const ids = [...new Set(claims.map((x) => x.rto_id))];
 	let media: { id: string; rto_id: string; kind: string; drive_file_id: string }[] = [];
 	if (ids.length) {
@@ -44,7 +47,7 @@ export async function loadQueue() {
 
 	const now = Date.now();
 	const queue = buildQueue(rtos, claims, counts, s.rules, now);
-	const tickets = buildTickets(rtos, claims, s.rules, now);
+	const tickets = buildTickets(listed, claims, s.rules, now);
 	const want = new Set([...queue.toRaise, ...queue.raised].map((r) => r.rtoId));
 	const pane: Record<string, PaneRto> = {};
 	for (const r of rtos)

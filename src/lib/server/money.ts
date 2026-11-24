@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { db } from './supabase.ts';
 import { fail, UUID } from './actions.ts';
-import { allRtos } from './rto-data.ts';
+import { allRtos, claimOnlyRtos } from './rto-data.ts';
 import { categoryOf, monthly, rupees, type LedgerRow, type MonthlyRow } from '#lib/money.ts';
 import { latestDispute } from '#lib/dashboard.ts';
 
@@ -108,7 +108,7 @@ export interface MoneyClaim {
 
 /** Everything the Money screen shows. Read only. */
 export async function loadMoney() {
-	const [lines, claims, money, months, last, rtos] = await Promise.all([
+	const [lines, claims, money, months, last, listed] = await Promise.all([
 		db().from('ledger').select('id, at, amount, notes, label, label_note, credit_id, credit:credits(external_ref, allocs:credit_allocations(claim_id, amount))')
 			.eq('category', 'claim_credit').order('at', { ascending: false }).limit(300),
 		db().from('claims').select('id, rto_id, status, reason, channel, ticket_ref, claimed_amount, expected_amount, approved_amount, approved_at, raised_at, close_result'),
@@ -121,6 +121,7 @@ export async function loadMoney() {
 		if (r.error) throw new Error(`${n}: ${r.error.message}`);
 	const owed = new Map((money.data ?? []).map((m) => [m.claim_id as string, m]));
 	const allClaims = (claims.data ?? []) as MoneyClaim[];
+	const rtos = [...listed, ...(await claimOnlyRtos(listed, allClaims))];
 	const want = new Set(allClaims.map((c) => c.rto_id));
 	return {
 		lines: (lines.data ?? []) as unknown as MoneyLine[],

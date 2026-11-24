@@ -1,5 +1,5 @@
 import { db } from './supabase.ts';
-import { DEFAULT_RULES, num, type Claim, type Rto, type Rules } from '#lib/dashboard.ts';
+import { DEFAULT_RULES, missingClaimRtoIds, num, type Claim, type Rto, type Rules } from '#lib/dashboard.ts';
 
 const RTO_COLS =
 	'id, courier, carrier_name, order_no, order_name, forward_awb, rto_awb, scanned_code, payment_mode, order_value, amount_collected, ' +
@@ -24,6 +24,22 @@ export async function allRtos(opts: { returns?: boolean } = {}): Promise<Rto[]> 
 		out.push(...((data ?? []) as unknown as Rto[]));
 		if (!data || data.length < PAGE) return out;
 	}
+}
+
+/**
+ * Parcels that allRtos() leaves out (a customer return still in flight / waiting / scanned) but that hold an open claim.
+ * Home, Claims and Money need their order no. and AWB for that claim. Kept apart from allRtos() so they never count as RTOs
+ * in the stage tiles or the RTO lists. One small query, only when such a claim exists.
+ */
+export async function claimOnlyRtos(have: Rto[], claims: { rto_id: string; status: string }[]): Promise<Rto[]> {
+	const ids = missingClaimRtoIds(have, claims);
+	const out: Rto[] = [];
+	for (let i = 0; i < ids.length; i += 200) {
+		const { data, error } = await db().from('rtos').select(RTO_COLS).in('id', ids.slice(i, i + 200));
+		if (error) throw new Error(`rtos (claims): ${error.message}`);
+		out.push(...((data ?? []) as unknown as Rto[]));
+	}
+	return out;
 }
 
 async function allClaims(): Promise<Claim[]> {
@@ -65,5 +81,6 @@ export async function settings(): Promise<{ rules: Rules; lastSync: LastSync; sr
 /** Read-only snapshot for Dashboard and All RTOs. No writes anywhere. */
 export async function loadSnapshot() {
 	const [rtos, claims, s] = await Promise.all([allRtos(), allClaims(), settings()]);
-	return { rtos, claims, rules: s.rules, lastSync: s.lastSync, srSync: s.srSync, ledgerImportAt: s.ledgerImportAt, now: Date.now() };
+	const claimRtos = await claimOnlyRtos(rtos, claims);
+	return { rtos, claimRtos, claims, rules: s.rules, lastSync: s.lastSync, srSync: s.srSync, ledgerImportAt: s.ledgerImportAt, now: Date.now() };
 }

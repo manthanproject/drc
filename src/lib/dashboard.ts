@@ -243,6 +243,12 @@ export function bucketOfStage(stage: string): BucketKey {
 
 const OPEN_CLAIM = new Set(['draft', 'raised', 'waiting', 'approved', 'escalated']);
 
+/** rto ids of open claims whose parcel is not in the list (a customer return not in stage 'claim'): load those too. */
+export function missingClaimRtoIds(rtos: Pick<Rto, 'id'>[], claims: { rto_id: string; status: string }[]): string[] {
+	const have = new Set(rtos.map((r) => r.id));
+	return [...new Set(claims.filter((c) => OPEN_CLAIM.has(c.status) && !have.has(c.rto_id)).map((c) => c.rto_id))];
+}
+
 // ---------- needs action ----------
 
 export type ActionKind = 'mdnd' | 'no_date' | 'lost' | 'stuck' | 'unknown' | 'claim_window' | 'credit_due' | 'reship_found' | 'follow_up' | 'rejected' | 'courier_approved' | 'withdraw';
@@ -284,9 +290,10 @@ const toneFor = (i: Pick<ActionItem, 'daysLeft' | 'windowClosed' | 'kind'>): Ton
 	return 'warn';
 };
 
-export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: number): ActionItem[] {
+/** claimRtos: parcels outside the RTO list that hold an open claim (claimOnlyRtos), used only to label those claims. */
+export function needsAction(rtos: Rto[], claims: Claim[], rules: Rules, now: number, claimRtos: Rto[] = []): ActionItem[] {
 	const out: ActionItem[] = [];
-	const byId = new Map(rtos.map((r) => [r.id, r]));
+	const byId = new Map([...rtos, ...claimRtos].map((r) => [r.id, r]));
 	// a courier ticket (Phase 4) is an open claim on a parcel that keeps its stage: don't ask again
 	const claimed = new Set(claims.filter((c) => OPEN_CLAIM.has(c.status)).map((c) => c.rto_id));
 	// a parcel whose claim is closed (paid, or written off) is settled: never ask to raise it again
@@ -404,7 +411,7 @@ export interface Dashboard {
 	action: ActionItem[];
 }
 
-export function buildDashboard(rtos: Rto[], claims: Claim[], rules: Rules, now: number): Dashboard {
+export function buildDashboard(rtos: Rto[], claims: Claim[], rules: Rules, now: number, claimRtos: Rto[] = []): Dashboard {
 	const d: Dashboard = {
 		total: rtos.length,
 		coming: { n: 0, started: 0, moving: 0, ofd: 0, noDate: 0 },
@@ -415,7 +422,7 @@ export function buildDashboard(rtos: Rto[], claims: Claim[], rules: Rules, now: 
 		claims: { n: 0, atStake: 0 },
 		creditDue: { n: 0, value: 0 },
 		parked: [],
-		action: needsAction(rtos, claims, rules, now)
+		action: needsAction(rtos, claims, rules, now, claimRtos)
 	};
 	const openClaimsByRto = new Map<string, Claim[]>();
 	for (const c of claims) if (OPEN_CLAIM.has(c.status)) openClaimsByRto.set(c.rto_id, [...(openClaimsByRto.get(c.rto_id) ?? []), c]);
@@ -645,10 +652,10 @@ export function sortRows(rows: ListRow[], sort: ListSort): ListRow[] {
 }
 
 /** Count per All RTOs view (PC sidebar). */
-export function filterCounts(rtos: Rto[], claims: Claim[], rules: Rules, now: number): Record<ListFilter, number> {
+export function filterCounts(rtos: Rto[], claims: Claim[], rules: Rules, now: number, claimRtos: Rto[] = []): Record<ListFilter, number> {
 	const out = Object.fromEntries(FILTERS.map((f) => [f.key, 0])) as Record<ListFilter, number>;
 	out.all = rtos.length;
-	out.action = needsAction(rtos, claims, rules, now).length;
+	out.action = needsAction(rtos, claims, rules, now, claimRtos).length;
 	const credit = new Set(claims.filter((c) => c.status === 'approved' && num(c.outstanding) > 0).map((c) => c.rto_id));
 	out.credit = rtos.filter((r) => credit.has(r.id)).length;
 	for (const r of rtos) {

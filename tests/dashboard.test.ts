@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	DAY, DEFAULT_RULES as R, buildDashboard, bucketOf, needsAction, listRows, matchesSearch,
-	trackingUrl, isNonDropy, windowText, ageText, syncState, inr, dateShort, type Rto, type Claim, orderLabel, actionWhat } from '../src/lib/dashboard.ts';
+	trackingUrl, isNonDropy, windowText, ageText, syncState, inr, dateShort, type Rto, type Claim, orderLabel, actionWhat, missingClaimRtoIds } from '../src/lib/dashboard.ts';
 
 const NOW = Date.parse('2026-10-04T12:00:00Z');
 const ago = (d: number) => new Date(NOW - d * DAY).toISOString();
@@ -231,4 +231,29 @@ test('15 Nov: settled parcels and arrived parcels', async () => {
 	assert.deepEqual(a.map((i) => [i.kind, i.rto!.id]), [['withdraw', back.id], ['mdnd', wd.id]]);
 	assert.equal(actionWhat(a[0]), 'Arrived: withdraw claim');
 	assert.equal(actionGroup(a[0]), 'followup');
+});
+
+test('a ticket on customer returns still in flight keeps its parcels (Home showed "—" with no Open, 24 Nov)', () => {
+	const listed = rto({ stage: 'in_flight' });
+	const r1 = rto({ kind: 'customer_return', stage: 'in_flight', order_name: 'Dropy-4963-ALL' });
+	const r2 = rto({ kind: 'customer_return', stage: 'in_flight', order_name: 'Dropy-4511-ALL' });
+	const claims: Claim[] = [
+		{ id: 'k1', rto_id: r1.id, reason: 'wrong_product', status: 'raised', channel: 'support_ticket', ticket_ref: '#121174', deadline_at: null, approved_at: null, raised_at: ago(9), outstanding: 2500 },
+		{ id: 'k2', rto_id: r2.id, reason: 'wrong_product', status: 'raised', channel: 'support_ticket', ticket_ref: '#121174', deadline_at: null, approved_at: null, raised_at: ago(9), outstanding: 770 },
+		{ id: 'k3', rto_id: 'gone', reason: 'damaged', status: 'closed', deadline_at: null, approved_at: null, raised_at: ago(9), outstanding: 0 }
+	];
+	// only open claims whose parcel is missing from the RTO list are fetched
+	assert.deepEqual(missingClaimRtoIds([listed], claims), [r1.id, r2.id]);
+	assert.deepEqual(missingClaimRtoIds([listed, r1, r2], claims), []);
+	// before: the ticket row had no parcel
+	assert.equal(needsAction([listed], claims, R, NOW)[0].rto, null);
+	// after: it has the first parcel (order no. + Open), and both still count as 2 parcels
+	const [i] = needsAction([listed], claims, R, NOW, [r1, r2]);
+	assert.equal(i.rto?.id, r1.id);
+	assert.equal(i.detail, `2 parcels · no update since ${dateShort(ago(9))}`);
+	assert.equal(i.amount, 3270);
+	// the returns never count as RTOs in the tiles
+	const d = buildDashboard([listed], claims, R, NOW, [r1, r2]);
+	assert.equal(d.total, 1);
+	assert.equal(d.coming.n, 1);
 });

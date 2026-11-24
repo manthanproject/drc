@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ setHeaders }) => {
 		// Sheet ↔ DRC: last check (cron every 15 min) — how many need a decision
 		db().from('settings').select('value').eq('key', 'sheet_sync_last').maybeSingle()
 	]);
-	const d = buildDashboard(s.rtos, s.claims, s.rules, s.now);
+	const d = buildDashboard(s.rtos, s.claims, s.rules, s.now, s.claimRtos);
 	const open = (ref.data ?? []) as { order_no: string; status: string }[];
 	const refunds = {
 		open: open.length,
