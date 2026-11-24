@@ -24,6 +24,8 @@
 	let { data }: PageProps = $props();
 	const r = $derived(data.rto);
 	const isReturn = $derived(r.kind === 'customer_return');
+	// a delivery claim (migration 0026): the parcel went to the customer and never came back, so no RTO reason / scan
+	const isForward = $derived(r.kind === 'forward');
 	const bucket = $derived(BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)]);
 	let undo = $state<{ text: string; eventId: number } | null>(null);
 
@@ -87,7 +89,7 @@
 			replaceState(clean, {});
 		}
 		if (r.forward_awb) fetch(`/api/rto/${r.id}/packing`).then((x) => x.json()).then((x) => (packing = x)).catch(() => (packing = { state: 'error' }));
-		if (r.forward_awb && r.kind !== 'customer_return') fetch(`/api/rto/${r.id}/reason`).then((x) => x.json()).then((x) => (exact = x)).catch(() => (exact = { state: 'error' }));
+		if (r.forward_awb && (r.kind ?? 'rto') === 'rto') fetch(`/api/rto/${r.id}/reason`).then((x) => x.json()).then((x) => (exact = x)).catch(() => (exact = { state: 'error' }));
 		else exact = { state: 'none' };
 	});
 
@@ -164,7 +166,7 @@
 		<a class="back" href={backHref} aria-label="Back">‹</a>
 		<span class="crumb desk-only">{backLabel} ›</span>
 		<h1>{orderLabel(r)}</h1>
-		{#if isReturn}<span class="pill p-ret">Customer return</span>{/if}
+		{#if isReturn}<span class="pill p-ret">Customer return</span>{/if}{#if isForward}<span class="pill p-warn">Delivery claim</span>{/if}
 		<span class="pill p-{bucket.tone}">{bucket.label}</span>
 		<span class="money hval desk-only">{inr(num(r.order_value))}</span>
 	</header>
@@ -172,7 +174,7 @@
 	<main class="content stack cols">
 		<div class="left">
 		<div class="card o-details">
-			{#if !isReturn && r.stage !== 'unknown_parcel'}<ReasonPanel {exact} code={reason} />{/if}
+			{#if !isReturn && !isForward && r.stage !== 'unknown_parcel'}<ReasonPanel {exact} code={reason} />{/if}
 			<div class="dtop">
 			<dl>
 				<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
@@ -274,7 +276,7 @@
 
 		{#if err}<p class="err o-err" role="alert">{err}</p>{/if}
 
-		{#if r.stage !== 'unknown_parcel'}
+		{#if r.stage !== 'unknown_parcel' && !isForward}
 			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
 		{/if}
 		{#if cleared}<p class="okline o-err" role="status">{cleared}</p>{/if}

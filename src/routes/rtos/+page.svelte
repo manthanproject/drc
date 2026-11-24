@@ -87,7 +87,7 @@
 				{#each data.rows as r (r.rto.id)}
 					{@const p = paymentBreakdown(r.rto)}
 					<a class="tr" class:flat={r.sheetOnly} role="row" href={rtoHref(r.rto.id, here)}>
-						<span class="ord">{orderLabel(r.rto)}{#if r.nonDropy} <span class="pill p-mute">non-Dropy</span>{/if}{#if r.sheetOnly} <span class="pill p-mute">sheet</span>{/if}{#if r.rto.reship_state === 'pending'} <span class="pill p-ok">re-ship?</span>{/if}</span>
+						<span class="ord">{orderLabel(r.rto)}{#if r.nonDropy} <span class="pill p-mute">non-Dropy</span>{/if}{#if r.sheetOnly} <span class="pill p-mute">sheet</span>{/if}{#if r.rto.kind === 'forward'} <span class="pill p-warn">delivery claim</span>{/if}{#if r.rto.reship_state === 'pending'} <span class="pill p-ok">re-ship?</span>{/if}</span>
 						<span class="ell">{r.rto.customer_name ?? '—'}</span>
 						<span class="small">{#if r.rto.forward_awb}{r.rto.carrier_name ?? 'Courier'}<span class="mono muted blk">{r.rto.forward_awb}</span>{:else}<span class="muted">no AWB</span>{/if}</span>
 						<span class="small"><b>{p.label.split(' · ')[0]}</b>{#if p.detail}<span class="muted blk">{p.detail}</span>{/if}</span>

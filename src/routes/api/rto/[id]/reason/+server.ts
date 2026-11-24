@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ request, params, cookies }) => {
 	await requireUser(request, cookies.get(SESSION_COOKIE));
 	const { data } = await db().from('rtos').select('courier, kind, forward_awb').eq('id', params.id).maybeSingle();
-	if (!data?.forward_awb || data.courier !== 'velocity' || data.kind === 'customer_return') return json({ state: 'none' });
+	if (!data?.forward_awb || data.courier !== 'velocity' || (data.kind ?? 'rto') !== 'rto') return json({ state: 'none' });
 	try {
 		const r = await velocityPost('/order-tracking', { awbs: [data.forward_awb] }, { timeoutMs: 12_000 });
 		if (r.status !== 200) return json({ state: 'error' });

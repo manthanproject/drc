@@ -1,0 +1,839 @@
+From 20d9de13fced0e0d2d831cc5e9bff90781757e2d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 24 Nov 2026 13:57:12 +0000
+Subject: [PATCH] Delivery claims: claims on parcels delivered to the customer
+ (damaged, wrong, short, forward MDND)
+
+Migration 0026: rtos.kind 'forward', create_forward_claim(), forward row closes with its claim.
+Disputes page: + Delivery claim form. Labels on queue, claim card, parcel page and list.
+Kept out of the RTO sheet sync and the RTO-reason lookup.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01D377CX3M6QAGFY4onNA15E
+---
+ package.json                                |   2 +-
+ src/lib/components/ClaimCard.svelte         |   2 +-
+ src/lib/components/ForwardClaimForm.svelte  | 127 ++++++++++++++++++
+ src/lib/dashboard.ts                        |   2 +-
+ src/lib/forward-claims.ts                   | 109 ++++++++++++++++
+ src/lib/queue.ts                            |   2 +-
+ src/lib/server/actions.ts                   |   4 +-
+ src/lib/server/forward-claims.ts            |  14 ++
+ src/lib/sheet-sync.ts                       |   5 +-
+ src/routes/api/forward-claim/+server.ts     |  10 ++
+ src/routes/api/rto/[id]/reason/+server.ts   |   2 +-
+ src/routes/claims/+page.svelte              |  17 +++
+ src/routes/rto/[id]/+page.svelte            |  10 +-
+ src/routes/rtos/+page.svelte                |   2 +-
+ supabase/migrations/0026_forward_claims.sql | 136 ++++++++++++++++++++
+ tests/forward-claims.test.ts                |  59 +++++++++
+ tests/sql/0026_test.sql                     |  77 +++++++++++
+ 17 files changed, 567 insertions(+), 13 deletions(-)
+ create mode 100644 src/lib/components/ForwardClaimForm.svelte
+ create mode 100644 src/lib/forward-claims.ts
+ create mode 100644 src/lib/server/forward-claims.ts
+ create mode 100644 src/routes/api/forward-claim/+server.ts
+ create mode 100644 supabase/migrations/0026_forward_claims.sql
+ create mode 100644 tests/forward-claims.test.ts
+ create mode 100644 tests/sql/0026_test.sql
+
+diff --git a/package.json b/package.json
+index 351fcc5..365e7fa 100644
+--- a/package.json
++++ b/package.json
+@@ -10,7 +10,7 @@
+ 		"prepare": "svelte-kit sync || echo ''",
+ 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+ 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+-		"test": "node --experimental-strip-types --test tests/dashboard.test.ts tests/reship.test.ts tests/scan.test.ts tests/products.test.ts tests/messages.test.ts tests/scanlog.test.ts tests/claims.test.ts tests/queue.test.ts tests/stock.test.ts tests/tickets.test.ts tests/followups.test.ts tests/money.test.ts tests/refunds.test.ts tests/shiprocket.test.ts tests/returns.test.ts tests/arrived.test.ts tests/sheet-sync.test.ts tests/collage.test.ts tests/reason.test.ts"
++		"test": "node --experimental-strip-types --test tests/dashboard.test.ts tests/reship.test.ts tests/scan.test.ts tests/products.test.ts tests/messages.test.ts tests/scanlog.test.ts tests/claims.test.ts tests/queue.test.ts tests/stock.test.ts tests/tickets.test.ts tests/followups.test.ts tests/money.test.ts tests/refunds.test.ts tests/shiprocket.test.ts tests/returns.test.ts tests/arrived.test.ts tests/sheet-sync.test.ts tests/collage.test.ts tests/reason.test.ts tests/forward-claims.test.ts"
+ 	},
+ 	"devDependencies": {
+ 		"@sveltejs/adapter-vercel": "^7.0.0",
+diff --git a/src/lib/components/ClaimCard.svelte b/src/lib/components/ClaimCard.svelte
+index 8f72072..4758598 100644
+--- a/src/lib/components/ClaimCard.svelte
++++ b/src/lib/components/ClaimCard.svelte
+@@ -123,7 +123,7 @@
+ {:else}
+ <div class="card claim">
+ 	<div class="head">
+-		<b>{isRet ? 'Return claim' : 'RTO claim'} · {claimReasonLabel(claim.reason)}</b>
++		<b>{isRet ? 'Return claim' : rto?.kind === 'forward' ? 'Delivery claim' : 'RTO claim'} · {claimReasonLabel(claim.reason)}</b>
+ 		<span class="pill p-{st.tone}">{st.label}</span>
+ 	</div>
+ 	<p class="small muted meta">
+diff --git a/src/lib/components/ForwardClaimForm.svelte b/src/lib/components/ForwardClaimForm.svelte
+new file mode 100644
+index 0000000..a9cc129
+--- /dev/null
++++ b/src/lib/components/ForwardClaimForm.svelte
+@@ -0,0 +1,127 @@
++<script lang="ts">
++	// Delivery claim (migration 0026): log a claim already raised with the courier on a parcel that went OUT to the
++	// customer and never came back (delivered damaged / wrong / short, or marked delivered but not received).
++	import { FWD_REASONS, FWD_CHANNELS, cleanForwardClaim } from '#lib/forward-claims.ts';
++
++	let { onsaved, oncancel }: { onsaved: (r: { rto_id: string; claim_id: string; order: string }) => void; oncancel: () => void } = $props();
++
++	const todayIst = () => new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
++
++	let courier = $state<'velocity' | 'shiprocket'>('velocity');
++	let orderNo = $state('');
++	let awb = $state('');
++	let carrier = $state('');
++	let reason = $state<string>('damaged');
++	let channel = $state<string>('panel_dispute');
++	let escalated = $state(false);
++	let ticketRef = $state('');
++	let raisedOn = $state(todayIst());
++	let amount = $state('');
++	let description = $state('');
++	let note = $state('');
++	let busy = $state(false);
++	let err = $state('');
++
++	const body = $derived({
++		courier, order_no: orderNo, awb, carrier_name: carrier, reason, channel,
++		status: escalated ? 'escalated' : 'raised', ticket_ref: ticketRef, raised_on: raisedOn,
++		claimed_amount: amount, order_value: amount, description, note
++	});
++	const check = $derived(cleanForwardClaim(body, todayIst()));
++
++	async function save() {
++		if (busy) return;
++		if (!check.ok) {
++			err = check.error;
++			return;
++		}
++		busy = true;
++		err = '';
++		try {
++			const r = await fetch('/api/forward-claim', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
++			const b = await r.json().catch(() => ({}));
++			if (!r.ok) {
++				err = b?.message ?? `Could not save (${r.status})`;
++				return;
++			}
++			onsaved({ rto_id: b.rto_id, claim_id: b.claim_id, order: check.args.order_name });
++		} catch {
++			err = 'No connection. Nothing was saved, try again.';
++		} finally {
++			busy = false;
++		}
++	}
++</script>
++
++<div class="card fc">
++	<div class="mh">
++		<b>New delivery claim</b>
++		<button class="x" onclick={oncancel} aria-label="Close">✕</button>
++	</div>
++	<p class="small muted lead">For a parcel delivered to the customer that came with a problem, or was marked delivered but never reached them. Raise it with the courier first, then log it here so DRC chases it.</p>
++
++	<div class="grid">
++		<label>Courier account
++			<select bind:value={courier}><option value="velocity">Velocity</option><option value="shiprocket">Shiprocket</option></select>
++		</label>
++		<label>Order no.
++			<input bind:value={orderNo} placeholder="e.g. 6770" inputmode="text" maxlength="20" />
++		</label>
++		<label>AWB of the delivered parcel
++			<input bind:value={awb} placeholder="e.g. 7D144182713" maxlength="40" class="mono" />
++		</label>
++		<label>Courier (optional)
++			<input bind:value={carrier} placeholder="e.g. DTDC" maxlength="60" />
++		</label>
++		<label>What went wrong
++			<select bind:value={reason}>{#each FWD_REASONS as r (r.key)}<option value={r.key}>{r.label}</option>{/each}</select>
++		</label>
++		<label>Claim amount (₹)
++			<input bind:value={amount} placeholder="Order value" inputmode="decimal" maxlength="12" />
++		</label>
++		<label>Raised as
++			<select bind:value={channel}>{#each FWD_CHANNELS as c (c.key)}<option value={c.key}>{c.label}</option>{/each}</select>
++		</label>
++		<label>Ticket / dispute no.{channel === 'support_ticket' ? '' : ' (optional)'}
++			<input bind:value={ticketRef} placeholder="e.g. 124093" maxlength="40" />
++		</label>
++		<label>Raised on
++			<input type="date" bind:value={raisedOn} max={todayIst()} />
++		</label>
++		<label class="chk"><input type="checkbox" bind:checked={escalated} /> Already rejected once, this is a second review</label>
++	</div>
++
++	<label class="full">What was sent to the courier (optional)
++		<textarea rows="3" bind:value={description} maxlength="4000" placeholder="Paste the dispute / ticket text, with the packing and unboxing video links"></textarea>
++	</label>
++	<label class="full">Note for the team (optional)
++		<input bind:value={note} maxlength="300" placeholder="e.g. first dispute rejected 17 Nov: packing video missing" />
++	</label>
++
++	{#if err}<p class="err" role="alert">{err}</p>{/if}
++	<div class="row">
++		<button class="go" onclick={oncancel} disabled={busy}>Cancel</button>
++		<button class="go accb" onclick={save} disabled={busy}>{busy ? 'Saving…' : 'Save claim'}</button>
++	</div>
++</div>
++
++<style>
++	.fc { border-color: var(--acc); margin-bottom: 14px; }
++	.fc :global(*) { box-sizing: border-box; }
++	.mh { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 16px; }
++	.x { border: 0; background: none; font-size: 16px; cursor: pointer; color: var(--muted); padding: 4px 8px; }
++	.lead { margin: 4px 0 12px; line-height: 1.45; }
++	.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 12px; }
++	label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--muted); min-width: 0; }
++	label.full { margin-top: 10px; }
++	label.chk { flex-direction: row; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); align-self: end; min-height: 42px; }
++	label.chk input { width: 18px; height: 18px; accent-color: var(--acc); }
++	input:not([type='checkbox']), select { height: 42px; width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; font-size: 14px; color: var(--ink); font-weight: 500; }
++	textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 10px 12px; font-size: 13px; line-height: 1.5; resize: vertical; color: var(--ink); font-weight: 500; }
++	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
++	.row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
++	.go { min-height: 42px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; font-size: 13.5px; cursor: pointer; }
++	.go:disabled { opacity: 0.55; cursor: default; }
++	.accb { background: var(--acc); border-color: var(--acc); color: #fff; }
++	.err { color: var(--bad); font-weight: 600; font-size: 13px; margin: 10px 0 0; }
++</style>
+diff --git a/src/lib/dashboard.ts b/src/lib/dashboard.ts
+index 4ce7425..3ac7262 100644
+--- a/src/lib/dashboard.ts
++++ b/src/lib/dashboard.ts
+@@ -29,7 +29,7 @@ export interface Rto {
+ 	legacy_source: string | null;
+ 	amount_collected?: number | string | null;
+ 	disputes?: VelDispute[] | null; // Velocity shipment_disputes (from the 15-min sync)
+-	kind?: 'rto' | 'customer_return' | null; // customer_return = a reverse pickup we created in Velocity (never an RTO)
++	kind?: 'rto' | 'customer_return' | 'forward' | null; // customer_return = a reverse pickup we created in Velocity (never an RTO); forward = a delivery claim (parcel went to the customer, never came back)
+ 	return_id?: string | null;
+ 	return_reason?: string | null;
+ 	reship_order_no?: string | null;
+diff --git a/src/lib/forward-claims.ts b/src/lib/forward-claims.ts
+new file mode 100644
+index 0000000..1281ca5
+--- /dev/null
++++ b/src/lib/forward-claims.ts
+@@ -0,0 +1,109 @@
++// Delivery claims (24 Nov 2026): a claim on a parcel that went OUT to the customer and never came back to us
++// (delivered damaged / wrong / short, or marked delivered but never received). Stored as an rtos row of kind
++// 'forward' that only holds its claim (migration 0026). Pure helpers here; the database call is in server/forward-claims.ts.
++import { cleanTicketRef } from './tickets.ts';
++
++export const FWD_REASONS = [
++	{ key: 'damaged', label: 'Delivered damaged / leaked' },
++	{ key: 'wrong_product', label: 'Wrong product delivered' },
++	{ key: 'missing_items', label: 'Item missing / empty box' },
++	{ key: 'mdnd', label: 'Marked delivered, customer never got it' },
++	{ key: 'lost', label: 'Lost in transit' },
++	{ key: 'other', label: 'Other' }
++] as const;
++
++export const FWD_CHANNELS = [
++	{ key: 'panel_dispute', label: 'Dispute on the courier panel' },
++	{ key: 'support_ticket', label: 'Support ticket' },
++	{ key: 'email', label: 'Email' }
++] as const;
++
++export type FwdReason = (typeof FWD_REASONS)[number]['key'];
++export type FwdChannel = (typeof FWD_CHANNELS)[number]['key'];
++
++export interface ForwardClaimArgs {
++	courier: 'velocity' | 'shiprocket';
++	awb: string;
++	order_no: string;
++	order_name: string;
++	carrier_name?: string;
++	customer_name?: string;
++	order_value?: string;
++	reason: FwdReason;
++	channel: FwdChannel;
++	status: 'raised' | 'escalated';
++	ticket_ref?: string;
++	raised_on?: string;
++	claimed_amount: string;
++	description?: string;
++	note?: string;
++}
++
++/** "#Dropy-6770", "Dropy-6770-ALL", "6770" → "6770"; keeps a split suffix ("1517-1"). Empty when it is not an order no. */
++export function cleanOrderNo(v: unknown): string {
++	const s = String(v ?? '')
++		.trim()
++		.replace(/^#/, '')
++		.replace(/^dropy[-\s]*/i, '')
++		.replace(/-all$/i, '');
++	return /^\d{1,7}(-\d{1,2}|[A-Z])?$/i.test(s) ? s.toUpperCase() : '';
++}
++
++/** AWBs are letters and digits only (spaces and dashes dropped), 6–30 long. */
++export function cleanAwb(v: unknown): string {
++	const s = String(v ?? '').replace(/[\s-]/g, '').toUpperCase();
++	return /^[A-Z0-9]{6,30}$/.test(s) ? s : '';
++}
++
++/** "₹1,379.00" → "1379"; null when not a positive amount. */
++export function cleanAmount(v: unknown): string | null {
++	const n = Number(String(v ?? '').replace(/[₹,\s]/g, ''));
++	return Number.isFinite(n) && n > 0 && n < 10_000_000 ? String(Math.round(n * 100) / 100) : null;
++}
++
++const text = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
++
++/** Form body → arguments for create_forward_claim, or the first problem in plain words. today = IST YYYY-MM-DD. */
++export function cleanForwardClaim(raw: unknown, today: string): { ok: true; args: ForwardClaimArgs } | { ok: false; error: string } {
++	const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
++	const courier = b.courier === 'shiprocket' ? 'shiprocket' : b.courier === 'velocity' ? 'velocity' : null;
++	if (!courier) return { ok: false, error: 'Pick the courier account (Velocity or Shiprocket)' };
++	const order_no = cleanOrderNo(b.order_no);
++	if (!order_no) return { ok: false, error: 'Type the order no., e.g. 6770' };
++	const awb = cleanAwb(b.awb);
++	if (!awb) return { ok: false, error: 'Type the AWB of the delivered parcel' };
++	const reason = FWD_REASONS.find((r) => r.key === b.reason)?.key;
++	if (!reason) return { ok: false, error: 'Pick what went wrong' };
++	const channel = FWD_CHANNELS.find((c) => c.key === b.channel)?.key;
++	if (!channel) return { ok: false, error: 'Pick where it was raised' };
++	const ticket_ref = cleanTicketRef(b.ticket_ref) || undefined;
++	if (channel === 'support_ticket' && !ticket_ref) return { ok: false, error: 'Type the ticket number' };
++	const claimed_amount = cleanAmount(b.claimed_amount);
++	if (!claimed_amount) return { ok: false, error: 'Type the claim amount' };
++	let raised_on: string | undefined;
++	if (typeof b.raised_on === 'string' && b.raised_on) {
++		if (!/^\d{4}-\d{2}-\d{2}$/.test(b.raised_on) || b.raised_on > today) return { ok: false, error: 'Raised date must be today or earlier' };
++		raised_on = b.raised_on;
++	}
++	const order_value = cleanAmount(b.order_value) ?? undefined;
++	return {
++		ok: true,
++		args: {
++			courier,
++			awb,
++			order_no,
++			order_name: `Dropy-${order_no}`,
++			carrier_name: text(b.carrier_name, 60),
++			customer_name: text(b.customer_name, 80),
++			order_value,
++			reason,
++			channel,
++			status: b.status === 'escalated' ? 'escalated' : 'raised',
++			ticket_ref,
++			raised_on,
++			claimed_amount,
++			description: text(b.description, 4000),
++			note: text(b.note, 300)
++		}
++	};
++}
+diff --git a/src/lib/queue.ts b/src/lib/queue.ts
+index f0c2b56..3a05274 100644
+--- a/src/lib/queue.ts
++++ b/src/lib/queue.ts
+@@ -88,7 +88,7 @@ export function buildQueue(
+ 			const ticket = c.channel === 'support_ticket';
+ 			// Phase 5: the pill says what to do next (Velocity's dispute status for panel disputes is inside followState)
+ 			const st = followState(c, r, rules, now)!;
+-			const why = ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : 'Lost, ticket') : claimReasonLabel(c.reason);
++			const why = `${r.kind === 'forward' ? 'Delivery: ' : ''}${ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : c.reason === 'lost' ? 'Lost, ticket' : `${claimReasonLabel(c.reason)}, ticket`) : claimReasonLabel(c.reason)}`;
+ 			const d = ticket ? null : latestDispute(r);
+ 			const vel = d ? ` · Velocity: ${disputeStatus(d.status).label}` : '';
+ 			raised.push({
+diff --git a/src/lib/server/actions.ts b/src/lib/server/actions.ts
+index d8589fb..dbb9307 100644
+--- a/src/lib/server/actions.ts
++++ b/src/lib/server/actions.ts
+@@ -56,7 +56,9 @@ const MESSAGES: Record<string, [number, string]> = {
+ 	DRC_REFUND_PAID: [409, 'The refund for this parcel is already marked Done in Refunds, so the scan cannot be cleared'],
+ 	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again'],
+ 	DRC_NOT_UNKNOWN: [409, 'This parcel is matched to an order now. Refresh the page'],
+-	DRC_UNKNOWN_NOT_TODAY: [409, "Only an unknown parcel saved today can be deleted"]
++	DRC_UNKNOWN_NOT_TODAY: [409, "Only an unknown parcel saved today can be deleted"],
++	DRC_FWD_ORDER_AWB: [400, 'Type the order no. and the AWB'],
++	DRC_FWD_AWB_EXISTS: [409, 'This AWB is already in DRC (an RTO or an earlier delivery claim). Open it there']
+ };
+ 
+ export function fail(message: string): never {
+diff --git a/src/lib/server/forward-claims.ts b/src/lib/server/forward-claims.ts
+new file mode 100644
+index 0000000..cfa9b5f
+--- /dev/null
++++ b/src/lib/server/forward-claims.ts
+@@ -0,0 +1,14 @@
++import { error } from '@sveltejs/kit';
++import { db } from './supabase.ts';
++import { fail } from './actions.ts';
++import { cleanForwardClaim } from '#lib/forward-claims.ts';
++import { istDate } from '#lib/scanlog.ts';
++
++/** Log a delivery claim (parcel delivered damaged / wrong / short, or forward MDND) already raised with the courier. */
++export async function createForwardClaim(raw: unknown) {
++	const c = cleanForwardClaim(raw, istDate(Date.now()));
++	if (!c.ok) error(400, c.error);
++	const { data, error: e } = await db().rpc('create_forward_claim', { p_args: c.args });
++	if (e) fail(e.message);
++	return data as { rto_id: string; claim_id: string; event_id: number };
++}
+diff --git a/src/lib/sheet-sync.ts b/src/lib/sheet-sync.ts
+index bfb67e9..9b8d6dc 100644
+--- a/src/lib/sheet-sync.ts
++++ b/src/lib/sheet-sync.ts
+@@ -264,7 +264,8 @@ export type Plan = {
+ 	baseline: Baseline[]; // baseline rows to save for orders that are now in step (written after the actions)
+ };
+ 
+-const isTracked = (r: DrcRto) => r.kind !== 'customer_return' && !COURIER_STAGES.has(r.stage) && r.stage !== 'unknown_parcel';
++// only real RTOs go to the sheet: never customer returns or delivery claims (kind 'forward')
++const isTracked = (r: DrcRto) => (r.kind ?? 'rto') === 'rto' && !COURIER_STAGES.has(r.stage) && r.stage !== 'unknown_parcel';
+ 
+ const newest = (rs: DrcRto[]) =>
+ 	[...rs].sort((a, b) => (b.scanned_at ?? b.updated_at ?? b.created_at ?? '').localeCompare(a.scanned_at ?? a.updated_at ?? a.created_at ?? ''))[0];
+@@ -290,7 +291,7 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[]; lastRow?: number
+ 	for (const [order, s] of lastRow) {
+ 		const mapped = stageFor(s.rtoStatus, s.status, s.items);
+ 		const text = sheetText(s);
+-		const all = (byOrder.get(order) ?? []).filter((r) => r.kind !== 'customer_return');
++		const all = (byOrder.get(order) ?? []).filter((r) => (r.kind ?? 'rto') === 'rto');
+ 		const b = base.get(order);
+ 		if (!all.length) {
+ 			if ((byOrder.get(order) ?? []).length) continue; // a customer return only: nothing to sync
+diff --git a/src/routes/api/forward-claim/+server.ts b/src/routes/api/forward-claim/+server.ts
+new file mode 100644
+index 0000000..840104e
+--- /dev/null
++++ b/src/routes/api/forward-claim/+server.ts
+@@ -0,0 +1,10 @@
++import { json } from '@sveltejs/kit';
++import { requireUser, SESSION_COOKIE } from '#lib/server/session.ts';
++import { createForwardClaim } from '#lib/server/forward-claims.ts';
++import type { RequestHandler } from './$types';
++
++/** POST {courier, order_no, awb, reason, channel, status, ticket_ref?, raised_on?, claimed_amount, …} → {rto_id, claim_id, event_id} */
++export const POST: RequestHandler = async ({ request, cookies }) => {
++	await requireUser(request, cookies.get(SESSION_COOKIE));
++	return json(await createForwardClaim(await request.json().catch(() => ({}))));
++};
+diff --git a/src/routes/api/rto/[id]/reason/+server.ts b/src/routes/api/rto/[id]/reason/+server.ts
+index 75aaa24..6d04172 100644
+--- a/src/routes/api/rto/[id]/reason/+server.ts
++++ b/src/routes/api/rto/[id]/reason/+server.ts
+@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
+ export const GET: RequestHandler = async ({ request, params, cookies }) => {
+ 	await requireUser(request, cookies.get(SESSION_COOKIE));
+ 	const { data } = await db().from('rtos').select('courier, kind, forward_awb').eq('id', params.id).maybeSingle();
+-	if (!data?.forward_awb || data.courier !== 'velocity' || data.kind === 'customer_return') return json({ state: 'none' });
++	if (!data?.forward_awb || data.courier !== 'velocity' || (data.kind ?? 'rto') !== 'rto') return json({ state: 'none' });
+ 	try {
+ 		const r = await velocityPost('/order-tracking', { awbs: [data.forward_awb] }, { timeoutMs: 12_000 });
+ 		if (r.status !== 200) return json({ state: 'error' });
+diff --git a/src/routes/claims/+page.svelte b/src/routes/claims/+page.svelte
+index ff82d5a..b29998c 100644
+--- a/src/routes/claims/+page.svelte
++++ b/src/routes/claims/+page.svelte
+@@ -6,6 +6,7 @@
+ 	import ClaimCard from '#lib/components/ClaimCard.svelte';
+ 	import UndoBar from '#lib/components/UndoBar.svelte';
+ 	import TicketDraft from '#lib/components/TicketDraft.svelte';
++	import ForwardClaimForm from '#lib/components/ForwardClaimForm.svelte';
+ 	import { ticketSub, ticketPill, COURIER_NAME, type TicketGroup } from '#lib/tickets.ts';
+ 	import { inr, num, dateShort } from '#lib/dashboard.ts';
+ 	import { rtoHref, undoFromUrl } from '#lib/scan.ts';
+@@ -22,6 +23,9 @@
+ 	let err = $state('');
+ 	let packing = $state<Record<string, string | null>>({});
+ 	let paneEl = $state<HTMLElement>();
++	// delivery claim form (parcel delivered to the customer, never came back)
++	let fwdOpen = $state(false);
++	let fwdDone = $state('');
+ 	// Phase 4: parcels ticked for one combined courier ticket (one courier at a time)
+ 	let ticked = $state<string[]>([]);
+ 	let view = $state<'claim' | 'ticket'>('claim');
+@@ -133,6 +137,14 @@
+ 		undo = { text: `${row?.label ?? 'Claim'}: ${text}`, eventId };
+ 		await invalidateAll();
+ 	}
++	async function fwdSaved(x: { rto_id: string; order: string }) {
++		fwdOpen = false;
++		fwdDone = `${x.order} delivery claim saved. DRC will remind you to follow up.`;
++		await invalidateAll();
++		sel = x.rto_id;
++		view = 'claim';
++	}
++
+ 	async function undoDone() {
+ 		undo = null;
+ 		await invalidateAll();
+@@ -154,8 +166,11 @@
+ 			{#if q.toFollow}<span class="pill p-warn">{q.toFollow} to follow up</span>{/if}
+ 			<a class="mlink small" href="/money">Money check →</a>
+ 			{#if ticketN}<span class="pill p-warn">{ticketN} for a ticket · {inr(ticketValue)}</span>{/if}
++			<button class="fwdbtn" onclick={() => { fwdOpen = !fwdOpen; fwdDone = ''; }}>+ Delivery claim</button>
+ 		</div>
+ 		<p class="lead muted">Every claim ready to paste into Velocity. Raise one, mark it raised, the next one opens.</p>
++		{#if fwdOpen}<ForwardClaimForm onsaved={fwdSaved} oncancel={() => (fwdOpen = false)} />{/if}
++		{#if fwdDone}<p class="okline" role="status">{fwdDone}</p>{/if}
+ 		{#if undo}<div class="undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
+ 
+ 		<div class="cols">
+@@ -251,6 +266,8 @@
+ 	.head h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+ 	.lead { margin: 4px 0 14px; font-size: 14px; }
+ 	.mlink { color: var(--acc); font-weight: 700; margin-left: auto; }
++	.fwdbtn { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--acc); background: var(--surface); color: var(--acc); font-weight: 700; font-size: 13px; cursor: pointer; }
++	.okline { color: var(--ok); font-weight: 600; font-size: 13.5px; margin: 0 0 12px; }
+ 	.undo { margin-bottom: 12px; }
+ 	.cols { display: flex; flex-direction: column; gap: 16px; }
+ 	.list { display: flex; flex-direction: column; gap: 8px; }
+diff --git a/src/routes/rto/[id]/+page.svelte b/src/routes/rto/[id]/+page.svelte
+index 9dfd421..faa3870 100644
+--- a/src/routes/rto/[id]/+page.svelte
++++ b/src/routes/rto/[id]/+page.svelte
+@@ -24,6 +24,8 @@
+ 	let { data }: PageProps = $props();
+ 	const r = $derived(data.rto);
+ 	const isReturn = $derived(r.kind === 'customer_return');
++	// a delivery claim (migration 0026): the parcel went to the customer and never came back, so no RTO reason / scan
++	const isForward = $derived(r.kind === 'forward');
+ 	const bucket = $derived(BUCKETS[bucketOf(r, Date.now(), DEFAULT_RULES)]);
+ 	let undo = $state<{ text: string; eventId: number } | null>(null);
+ 
+@@ -87,7 +89,7 @@
+ 			replaceState(clean, {});
+ 		}
+ 		if (r.forward_awb) fetch(`/api/rto/${r.id}/packing`).then((x) => x.json()).then((x) => (packing = x)).catch(() => (packing = { state: 'error' }));
+-		if (r.forward_awb && r.kind !== 'customer_return') fetch(`/api/rto/${r.id}/reason`).then((x) => x.json()).then((x) => (exact = x)).catch(() => (exact = { state: 'error' }));
++		if (r.forward_awb && (r.kind ?? 'rto') === 'rto') fetch(`/api/rto/${r.id}/reason`).then((x) => x.json()).then((x) => (exact = x)).catch(() => (exact = { state: 'error' }));
+ 		else exact = { state: 'none' };
+ 	});
+ 
+@@ -164,7 +166,7 @@
+ 		<a class="back" href={backHref} aria-label="Back">‹</a>
+ 		<span class="crumb desk-only">{backLabel} ›</span>
+ 		<h1>{orderLabel(r)}</h1>
+-		{#if isReturn}<span class="pill p-ret">Customer return</span>{/if}
++		{#if isReturn}<span class="pill p-ret">Customer return</span>{/if}{#if isForward}<span class="pill p-warn">Delivery claim</span>{/if}
+ 		<span class="pill p-{bucket.tone}">{bucket.label}</span>
+ 		<span class="money hval desk-only">{inr(num(r.order_value))}</span>
+ 	</header>
+@@ -172,7 +174,7 @@
+ 	<main class="content stack cols">
+ 		<div class="left">
+ 		<div class="card o-details">
+-			{#if !isReturn && r.stage !== 'unknown_parcel'}<ReasonPanel {exact} code={reason} />{/if}
++			{#if !isReturn && !isForward && r.stage !== 'unknown_parcel'}<ReasonPanel {exact} code={reason} />{/if}
+ 			<div class="dtop">
+ 			<dl>
+ 				<dt>Customer</dt><dd>{r.customer_name ?? '—'}</dd>
+@@ -274,7 +276,7 @@
+ 
+ 		{#if err}<p class="err o-err" role="alert">{err}</p>{/if}
+ 
+-		{#if r.stage !== 'unknown_parcel'}
++		{#if r.stage !== 'unknown_parcel' && !isForward}
+ 			<div class="card o-picker"><StatusPicker rto={r} title={r.stage === 'to_call' ? 'Call outcome / change status' : 'Change status'} claimHref={!openClaim && r.courier && r.forward_awb ? claimHref(r.id, backHref, { ret: 'rto' }) : null} onsaved={saved} /></div>
+ 		{/if}
+ 		{#if cleared}<p class="okline o-err" role="status">{cleared}</p>{/if}
+diff --git a/src/routes/rtos/+page.svelte b/src/routes/rtos/+page.svelte
+index 01277d0..129184a 100644
+--- a/src/routes/rtos/+page.svelte
++++ b/src/routes/rtos/+page.svelte
+@@ -87,7 +87,7 @@
+ 				{#each data.rows as r (r.rto.id)}
+ 					{@const p = paymentBreakdown(r.rto)}
+ 					<a class="tr" class:flat={r.sheetOnly} role="row" href={rtoHref(r.rto.id, here)}>
+-						<span class="ord">{orderLabel(r.rto)}{#if r.nonDropy} <span class="pill p-mute">non-Dropy</span>{/if}{#if r.sheetOnly} <span class="pill p-mute">sheet</span>{/if}{#if r.rto.reship_state === 'pending'} <span class="pill p-ok">re-ship?</span>{/if}</span>
++						<span class="ord">{orderLabel(r.rto)}{#if r.nonDropy} <span class="pill p-mute">non-Dropy</span>{/if}{#if r.sheetOnly} <span class="pill p-mute">sheet</span>{/if}{#if r.rto.kind === 'forward'} <span class="pill p-warn">delivery claim</span>{/if}{#if r.rto.reship_state === 'pending'} <span class="pill p-ok">re-ship?</span>{/if}</span>
+ 						<span class="ell">{r.rto.customer_name ?? '—'}</span>
+ 						<span class="small">{#if r.rto.forward_awb}{r.rto.carrier_name ?? 'Courier'}<span class="mono muted blk">{r.rto.forward_awb}</span>{:else}<span class="muted">no AWB</span>{/if}</span>
+ 						<span class="small"><b>{p.label.split(' · ')[0]}</b>{#if p.detail}<span class="muted blk">{p.detail}</span>{/if}</span>
+diff --git a/supabase/migrations/0026_forward_claims.sql b/supabase/migrations/0026_forward_claims.sql
+new file mode 100644
+index 0000000..4052fff
+--- /dev/null
++++ b/supabase/migrations/0026_forward_claims.sql
+@@ -0,0 +1,136 @@
++-- DRC: delivery claims (24 Nov 2026). A claim on a parcel that went OUT to the customer and never came back to us:
++-- delivered damaged, delivered with a wrong / missing item, or marked delivered but never received (forward MDND).
++-- These are not RTOs, so they had no place in DRC. Same pattern as customer returns:
++--   1. rtos.kind gets a third value 'forward'. A forward row exists only to hold its claim: stage 'claim' while the
++--      claim is open, 'closed' once the claim closes. It never shows in the RTO lists, MDND, Scan or tickets to raise.
++--   2. create_forward_claim(p_args): one call makes the forward row + the claim (already raised with the courier).
++--   3. forward_claim_closed: when its claim closes (credited / written off / withdrawn), the forward row closes too.
++begin;
++
++-- ---------- 1. kind ----------
++do $$
++declare c text;
++begin
++  for c in
++    select conname from pg_constraint
++     where conrelid = 'public.rtos'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%customer_return%'
++  loop
++    execute format('alter table public.rtos drop constraint %I', c);
++  end loop;
++end $$;
++alter table public.rtos add constraint rtos_kind_check check (kind in ('rto', 'customer_return', 'forward'));
++
++-- ---------- 2. create ----------
++-- p_args: {courier, awb, order_no, order_name?, carrier_name?, order_value?, customer_name?, reason, channel,
++--          status ('raised' | 'escalated'), ticket_ref?, raised_on? (YYYY-MM-DD), claimed_amount, description?, note?}
++create or replace function public.create_forward_claim(p_args jsonb)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_courier text := p_args->>'courier';
++  v_awb     text := nullif(btrim(coalesce(p_args->>'awb', '')), '');
++  v_order   text := nullif(btrim(coalesce(p_args->>'order_no', '')), '');
++  v_reason  text := p_args->>'reason';
++  v_channel text := coalesce(p_args->>'channel', 'support_ticket');
++  v_status  text := coalesce(p_args->>'status', 'raised');
++  v_ref     text := nullif(btrim(coalesce(p_args->>'ticket_ref', '')), '');
++  v_amount  numeric;
++  v_raised  timestamptz;
++  v_rto     uuid;
++  v_claim   uuid;
++  v_ev      bigint;
++begin
++  if v_courier is null or v_courier not in ('velocity', 'shiprocket') then raise exception 'DRC_NO_COURIER'; end if;
++  if v_awb is null or v_order is null then raise exception 'DRC_FWD_ORDER_AWB'; end if;
++  if v_reason is null or v_reason not in ('mdnd', 'wrong_product', 'damaged', 'missing_items', 'lost', 'other') then
++    raise exception 'DRC_BAD_REASON';
++  end if;
++  if v_channel not in ('panel_dispute', 'support_ticket', 'email') then raise exception 'DRC_BAD_SOURCE'; end if;
++  if v_status not in ('raised', 'escalated') then raise exception 'DRC_UNKNOWN_ACTION'; end if;
++  if v_channel = 'support_ticket' and v_ref is null then raise exception 'DRC_TICKET_REF_REQUIRED'; end if;
++
++  begin
++    v_amount := (p_args->>'claimed_amount')::numeric;
++  exception when others then
++    raise exception 'DRC_BAD_AMOUNT';
++  end;
++  if v_amount is null or v_amount <= 0 then raise exception 'DRC_BAD_AMOUNT'; end if;
++
++  if coalesce(p_args->>'raised_on', '') <> '' then
++    if (p_args->>'raised_on')::date > (now() at time zone 'Asia/Kolkata')::date then raise exception 'DRC_BAD_DATE'; end if;
++    -- noon IST on the day it was raised
++    v_raised := ((p_args->>'raised_on')::date + time '12:00') at time zone 'Asia/Kolkata';
++  else
++    v_raised := now();
++  end if;
++
++  -- one parcel per AWB: an AWB already in DRC (an RTO of this shipment, or an earlier delivery claim) is claimed there
++  if exists (select 1 from public.rtos where courier = v_courier and forward_awb = v_awb) then
++    raise exception 'DRC_FWD_AWB_EXISTS';
++  end if;
++
++  insert into public.rtos (courier, kind, forward_awb, order_no, order_name, carrier_name, order_value, customer_name, stage, notes)
++  values (v_courier, 'forward', v_awb, v_order,
++          coalesce(nullif(btrim(coalesce(p_args->>'order_name', '')), ''), 'Dropy-' || v_order),
++          nullif(btrim(coalesce(p_args->>'carrier_name', '')), ''),
++          nullif(p_args->>'order_value', '')::numeric,
++          nullif(btrim(coalesce(p_args->>'customer_name', '')), ''),
++          'claim',
++          nullif(btrim(coalesce(p_args->>'note', '')), ''))
++  returning id into v_rto;
++
++  insert into public.claims (rto_id, courier, channel, reason, status, ticket_ref, claimed_amount, raised_at,
++                             escalated_at, next_follow_up_at, description, notes)
++  values (v_rto, v_courier, v_channel, v_reason, v_status, v_ref, v_amount, v_raised,
++          case when v_status = 'escalated' then now() end,
++          greatest(now(), v_raised) + interval '48 hours',
++          nullif(btrim(coalesce(p_args->>'description', '')), ''),
++          nullif(btrim(coalesce(p_args->>'note', '')), ''))
++  returning id into v_claim;
++
++  insert into public.events (source, rto_id, awb, kind, payload)
++  values ('user', v_rto, v_awb, 'forward_claim',
++          jsonb_build_object('action', 'forward_claim', 'claim_id', v_claim, 'reason', v_reason, 'channel', v_channel,
++                             'status', v_status, 'ticket_ref', v_ref, 'amount', v_amount))
++  returning id into v_ev;
++
++  return jsonb_build_object('rto_id', v_rto, 'claim_id', v_claim, 'event_id', v_ev);
++end;
++$$;
++
++revoke all on function public.create_forward_claim(jsonb) from public;
++do $$
++begin
++  if exists (select 1 from pg_roles where rolname = 'anon') then
++    execute 'revoke all on function public.create_forward_claim(jsonb) from anon, authenticated';
++    execute 'grant execute on function public.create_forward_claim(jsonb) to service_role';
++  end if;
++end $$;
++
++-- ---------- 3. close with its claim ----------
++create or replace function public.forward_claim_closed()
++returns trigger
++language plpgsql
++security definer
++set search_path = public
++as $$
++begin
++  if new.status = 'closed' and old.status is distinct from 'closed' then
++    update public.rtos set stage = 'closed'
++     where id = new.rto_id and kind = 'forward' and stage = 'claim';
++  elsif new.status <> 'closed' and old.status = 'closed' then
++    update public.rtos set stage = 'claim'
++     where id = new.rto_id and kind = 'forward' and stage = 'closed';
++  end if;
++  return new;
++end;
++$$;
++
++drop trigger if exists claims_forward_closed on public.claims;
++create trigger claims_forward_closed after update of status on public.claims
++  for each row execute function public.forward_claim_closed();
++
++commit;
+diff --git a/tests/forward-claims.test.ts b/tests/forward-claims.test.ts
+new file mode 100644
+index 0000000..edc0d58
+--- /dev/null
++++ b/tests/forward-claims.test.ts
+@@ -0,0 +1,59 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { cleanForwardClaim, cleanOrderNo, cleanAwb, cleanAmount } from '../src/lib/forward-claims.ts';
++import { buildQueue } from '../src/lib/queue.ts';
++import { DEFAULT_RULES } from '../src/lib/dashboard.ts';
++
++const TODAY = '2026-11-24';
++const base = { courier: 'velocity', order_no: '#Dropy-6770', awb: '7D 1441-82713', reason: 'damaged', channel: 'panel_dispute', claimed_amount: '₹1,379', raised_on: '2026-11-06' };
++
++test('order no., AWB and amount cleaning', () => {
++	assert.equal(cleanOrderNo('#Dropy-6770'), '6770');
++	assert.equal(cleanOrderNo('Dropy-6770-ALL'), '6770');
++	assert.equal(cleanOrderNo('1517-1'), '1517-1');
++	assert.equal(cleanOrderNo('6139f'), '6139F');
++	assert.equal(cleanOrderNo('hello'), '');
++	assert.equal(cleanAwb('7d 1441-82713'), '7D144182713');
++	assert.equal(cleanAwb('12'), '');
++	assert.equal(cleanAmount('₹1,379.00'), '1379');
++	assert.equal(cleanAmount('0'), null);
++	assert.equal(cleanAmount('abc'), null);
++});
++
++test('a valid delivery claim becomes RPC args', () => {
++	const r = cleanForwardClaim(base, TODAY);
++	assert.ok(r.ok);
++	if (!r.ok) return;
++	assert.equal(r.args.order_no, '6770');
++	assert.equal(r.args.order_name, 'Dropy-6770');
++	assert.equal(r.args.awb, '7D144182713');
++	assert.equal(r.args.claimed_amount, '1379');
++	assert.equal(r.args.status, 'raised');
++	assert.equal(r.args.ticket_ref, undefined);
++	const e = cleanForwardClaim({ ...base, status: 'escalated', ticket_ref: '124093' }, TODAY);
++	assert.ok(e.ok && e.args.status === 'escalated' && e.args.ticket_ref === '#124093');
++});
++
++test('plain-English refusals', () => {
++	const err = (x: object) => {
++		const r = cleanForwardClaim({ ...base, ...x }, TODAY);
++		return r.ok ? '' : r.error;
++	};
++	assert.match(err({ courier: 'dhl' }), /courier/);
++	assert.match(err({ order_no: '' }), /order no/);
++	assert.match(err({ awb: '' }), /AWB/);
++	assert.match(err({ reason: 'cod_fraud' }), /went wrong/);
++	assert.match(err({ channel: 'support_ticket' }), /ticket number/);
++	assert.match(err({ claimed_amount: '' }), /amount/);
++	assert.match(err({ raised_on: '2026-11-25' }), /today or earlier/);
++});
++
++test('queue: a forward claim on a ticket reads "Delivery: Damaged, ticket"', () => {
++	const rto = { id: 'f1', courier: 'velocity', kind: 'forward', stage: 'claim', order_no: '6770', order_name: 'Dropy-6770', forward_awb: '7D144182713', order_value: 1379 } as any;
++	const claim = { id: 'c1', rto_id: 'f1', reason: 'damaged', status: 'escalated', channel: 'support_ticket', ticket_ref: '#124093', claimed_amount: 1379,
++		deadline_at: null, raised_at: '2026-11-24T06:00:00Z', next_follow_up_at: '2026-11-27T06:00:00Z', follow_ups: 0 } as any;
++	const q = buildQueue([rto], [claim], {}, DEFAULT_RULES, Date.parse('2026-11-25T06:00:00Z'));
++	assert.equal(q.raised.length, 1);
++	assert.match(q.raised[0].sub, /^Delivery: Damaged, ticket/);
++	assert.equal(q.toRaise.length, 0);
++});
+diff --git a/tests/sql/0026_test.sql b/tests/sql/0026_test.sql
+new file mode 100644
+index 0000000..258e69b
+--- /dev/null
++++ b/tests/sql/0026_test.sql
+@@ -0,0 +1,77 @@
++-- Run on a scratch DB after all migrations: psql -v ON_ERROR_STOP=1 -f tests/sql/0026_test.sql
++\set QUIET on
++begin;
++create or replace function pg_temp.ok(c boolean, msg text) returns void language plpgsql as $$
++begin if c is distinct from true then raise exception 'FAIL: %', msg; end if; raise notice 'ok  %', msg; end $$;
++
++-- an existing RTO on another AWB of the same order (like #6770: Delhivery RTO, then DTDC delivered damaged)
++insert into public.rtos (id, courier, forward_awb, order_no, order_value, stage, payment_mode)
++values ('00000000-0000-0000-0000-00000000a601','velocity','RTOAWB1','6770',1379,'closed','prepaid');
++
++-- create: raised panel dispute, no ticket number needed
++select pg_temp.ok((select (public.create_forward_claim(jsonb_build_object(
++  'courier','velocity','awb','FWD1','order_no','6770','order_value','1379','customer_name','Rahat',
++  'carrier_name','DTDC Standard','reason','damaged','channel','panel_dispute','status','raised',
++  'raised_on', to_char((now() at time zone 'Asia/Kolkata')::date - 18, 'YYYY-MM-DD'),
++  'claimed_amount','1379','description','Delivered damaged'))->>'claim_id') is not null), 'forward claim created');
++select pg_temp.ok((select kind='forward' and stage='claim' and order_name='Dropy-6770' from rtos where forward_awb='FWD1'), 'forward row: kind forward, stage claim, default order name');
++select pg_temp.ok((select c.status='raised' and c.reason='damaged' and c.channel='panel_dispute' and c.claimed_amount=1379
++                     and (c.raised_at at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date - 18
++                     and c.next_follow_up_at > now() + interval '47 hours'
++                   from claims c join rtos r on r.id=c.rto_id where r.forward_awb='FWD1'), 'claim raised, back-dated, follow-up in 48 h');
++select pg_temp.ok((select count(*)=1 from events where kind='forward_claim' and awb='FWD1'), 'history event written');
++select pg_temp.ok((select stage='closed' from rtos where id='00000000-0000-0000-0000-00000000a601'), 'old RTO of the same order untouched');
++
++-- support ticket, escalated
++select pg_temp.ok((select (public.create_forward_claim(jsonb_build_object(
++  'courier','shiprocket','awb','FWD2','order_no','7001-1','reason','missing_items','channel','support_ticket',
++  'status','escalated','ticket_ref','#555','claimed_amount','999.50'))->>'rto_id') is not null), 'escalated ticket claim created');
++select pg_temp.ok((select c.status='escalated' and c.escalated_at is not null and c.ticket_ref='#555'
++                   from claims c join rtos r on r.id=c.rto_id where r.forward_awb='FWD2'), 'escalated with ticket ref');
++
++-- refusals
++do $$ begin perform public.create_forward_claim('{"courier":"velocity","awb":"FWD1","order_no":"6770","reason":"damaged","channel":"panel_dispute","claimed_amount":"1"}');
++  raise exception 'FAIL: duplicate AWB accepted';
++exception when others then if sqlerrm not like 'DRC_FWD_AWB_EXISTS%' then raise; end if; raise notice 'ok  same AWB refused'; end $$;
++do $$ begin perform public.create_forward_claim('{"courier":"velocity","awb":"RTOAWB1","order_no":"6770","reason":"damaged","channel":"panel_dispute","claimed_amount":"1"}');
++  raise exception 'FAIL: RTO AWB accepted';
++exception when others then if sqlerrm not like 'DRC_FWD_AWB_EXISTS%' then raise; end if; raise notice 'ok  AWB of an RTO refused'; end $$;
++do $$ begin perform public.create_forward_claim('{"courier":"velocity","awb":"FWD3","order_no":"1","reason":"damaged","channel":"support_ticket","claimed_amount":"1"}');
++  raise exception 'FAIL: ticket without ref';
++exception when others then if sqlerrm not like 'DRC_TICKET_REF_REQUIRED%' then raise; end if; raise notice 'ok  ticket needs a number'; end $$;
++do $$ begin perform public.create_forward_claim('{"courier":"velocity","awb":"FWD3","order_no":"1","reason":"damaged","channel":"panel_dispute","claimed_amount":"0"}');
++  raise exception 'FAIL: zero amount';
++exception when others then if sqlerrm not like 'DRC_BAD_AMOUNT%' then raise; end if; raise notice 'ok  zero amount refused'; end $$;
++do $$ begin perform public.create_forward_claim('{"courier":"velocity","awb":"FWD3","order_no":"1","reason":"cod_fraud","channel":"panel_dispute","claimed_amount":"5"}');
++  raise exception 'FAIL: bad reason';
++exception when others then if sqlerrm not like 'DRC_BAD_REASON%' then raise; end if; raise notice 'ok  bad reason refused'; end $$;
++do $$ begin perform public.create_forward_claim('{"courier":"dhl","awb":"FWD3","order_no":"1","reason":"damaged","channel":"panel_dispute","claimed_amount":"5"}');
++  raise exception 'FAIL: bad courier';
++exception when others then if sqlerrm not like 'DRC_NO_COURIER%' then raise; end if; raise notice 'ok  bad courier refused'; end $$;
++do $$ begin perform public.create_forward_claim(jsonb_build_object('courier','velocity','awb','FWD3','order_no','1','reason','damaged','channel','panel_dispute','claimed_amount','5',
++  'raised_on', to_char((now() at time zone 'Asia/Kolkata')::date + 2, 'YYYY-MM-DD')));
++  raise exception 'FAIL: future date';
++exception when others then if sqlerrm not like 'DRC_BAD_DATE%' then raise; end if; raise notice 'ok  future raised date refused'; end $$;
++select pg_temp.ok(not exists (select 1 from rtos where forward_awb='FWD3'), 'nothing saved on refusal');
++
++-- the existing follow-up actions work on it; closing the claim closes the forward row
++select public.claim_action((select c.id from claims c join rtos r on r.id=c.rto_id where r.forward_awb='FWD1'), 'escalate', '{"ticket_ref":"#124093"}');
++select pg_temp.ok((select c.status='escalated' and c.ticket_ref='#124093' from claims c join rtos r on r.id=c.rto_id where r.forward_awb='FWD1'), 'escalate works on a forward claim');
++select public.claim_action((select c.id from claims c join rtos r on r.id=c.rto_id where r.forward_awb='FWD1'), 'withdraw', '{"note":"test"}');
++select pg_temp.ok((select stage='closed' from rtos where forward_awb='FWD1'), 'claim closed → forward row closed');
++select pg_temp.ok((select stage='claim' from rtos where forward_awb='FWD2'), 'other forward claim still open');
++
++-- an RTO's claim closing never touches the RTO's stage
++insert into public.rtos (id, courier, forward_awb, order_no, order_value, stage, payment_mode)
++values ('00000000-0000-0000-0000-00000000a602','velocity','RTOAWB2','6800',500,'claim','prepaid');
++insert into public.claims (id, rto_id, courier, reason, status, claimed_amount)
++values ('00000000-0000-0000-0000-00000000c602','00000000-0000-0000-0000-00000000a602','velocity','damaged','raised',500);
++select public.claim_action('00000000-0000-0000-0000-00000000c602', 'withdraw', '{"note":"test"}');
++select pg_temp.ok((select stage='claim' from rtos where id='00000000-0000-0000-0000-00000000a602'), 'RTO stage untouched when its claim closes');
++
++-- kind check still guards
++do $$ begin insert into public.rtos (courier, forward_awb, order_no, stage, kind) values ('velocity','X9','9','closed','other');
++  raise exception 'FAIL: bad kind';
++exception when check_violation then raise notice 'ok  unknown kind refused'; end $$;
++
++rollback;
+-- 
+2.43.0
+

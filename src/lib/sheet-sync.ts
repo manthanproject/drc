@@ -264,7 +264,8 @@ export type Plan = {
 	baseline: Baseline[]; // baseline rows to save for orders that are now in step (written after the actions)
 };
 
-const isTracked = (r: DrcRto) => r.kind !== 'customer_return' && !COURIER_STAGES.has(r.stage) && r.stage !== 'unknown_parcel';
+// only real RTOs go to the sheet: never customer returns or delivery claims (kind 'forward')
+const isTracked = (r: DrcRto) => (r.kind ?? 'rto') === 'rto' && !COURIER_STAGES.has(r.stage) && r.stage !== 'unknown_parcel';
 
 const newest = (rs: DrcRto[]) =>
 	[...rs].sort((a, b) => (b.scanned_at ?? b.updated_at ?? b.created_at ?? '').localeCompare(a.scanned_at ?? a.updated_at ?? a.created_at ?? ''))[0];
@@ -290,7 +291,7 @@ export function compare(sheet: { cols: Cols; rows: SheetRow[]; lastRow?: number 
 	for (const [order, s] of lastRow) {
 		const mapped = stageFor(s.rtoStatus, s.status, s.items);
 		const text = sheetText(s);
-		const all = (byOrder.get(order) ?? []).filter((r) => r.kind !== 'customer_return');
+		const all = (byOrder.get(order) ?? []).filter((r) => (r.kind ?? 'rto') === 'rto');
 		const b = base.get(order);
 		if (!all.length) {
 			if ((byOrder.get(order) ?? []).length) continue; // a customer return only: nothing to sync

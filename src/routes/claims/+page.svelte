@@ -6,6 +6,7 @@
 	import ClaimCard from '#lib/components/ClaimCard.svelte';
 	import UndoBar from '#lib/components/UndoBar.svelte';
 	import TicketDraft from '#lib/components/TicketDraft.svelte';
+	import ForwardClaimForm from '#lib/components/ForwardClaimForm.svelte';
 	import { ticketSub, ticketPill, COURIER_NAME, type TicketGroup } from '#lib/tickets.ts';
 	import { inr, num, dateShort } from '#lib/dashboard.ts';
 	import { rtoHref, undoFromUrl } from '#lib/scan.ts';
@@ -22,6 +23,9 @@
 	let err = $state('');
 	let packing = $state<Record<string, string | null>>({});
 	let paneEl = $state<HTMLElement>();
+	// delivery claim form (parcel delivered to the customer, never came back)
+	let fwdOpen = $state(false);
+	let fwdDone = $state('');
 	// Phase 4: parcels ticked for one combined courier ticket (one courier at a time)
 	let ticked = $state<string[]>([]);
 	let view = $state<'claim' | 'ticket'>('claim');
@@ -133,6 +137,14 @@
 		undo = { text: `${row?.label ?? 'Claim'}: ${text}`, eventId };
 		await invalidateAll();
 	}
+	async function fwdSaved(x: { rto_id: string; order: string }) {
+		fwdOpen = false;
+		fwdDone = `${x.order} delivery claim saved. DRC will remind you to follow up.`;
+		await invalidateAll();
+		sel = x.rto_id;
+		view = 'claim';
+	}
+
 	async function undoDone() {
 		undo = null;
 		await invalidateAll();
@@ -154,8 +166,11 @@
 			{#if q.toFollow}<span class="pill p-warn">{q.toFollow} to follow up</span>{/if}
 			<a class="mlink small" href="/money">Money check →</a>
 			{#if ticketN}<span class="pill p-warn">{ticketN} for a ticket · {inr(ticketValue)}</span>{/if}
+			<button class="fwdbtn" onclick={() => { fwdOpen = !fwdOpen; fwdDone = ''; }}>+ Delivery claim</button>
 		</div>
 		<p class="lead muted">Every claim ready to paste into Velocity. Raise one, mark it raised, the next one opens.</p>
+		{#if fwdOpen}<ForwardClaimForm onsaved={fwdSaved} oncancel={() => (fwdOpen = false)} />{/if}
+		{#if fwdDone}<p class="okline" role="status">{fwdDone}</p>{/if}
 		{#if undo}<div class="undo">{#key undo.eventId}<UndoBar text={undo.text} eventId={undo.eventId} ondone={undoDone} />{/key}</div>{/if}
 
 		<div class="cols">
@@ -251,6 +266,8 @@
 	.head h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
 	.lead { margin: 4px 0 14px; font-size: 14px; }
 	.mlink { color: var(--acc); font-weight: 700; margin-left: auto; }
+	.fwdbtn { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--acc); background: var(--surface); color: var(--acc); font-weight: 700; font-size: 13px; cursor: pointer; }
+	.okline { color: var(--ok); font-weight: 600; font-size: 13.5px; margin: 0 0 12px; }
 	.undo { margin-bottom: 12px; }
 	.cols { display: flex; flex-direction: column; gap: 16px; }
 	.list { display: flex; flex-direction: column; gap: 8px; }

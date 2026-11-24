@@ -56,7 +56,9 @@ const MESSAGES: Record<string, [number, string]> = {
 	DRC_REFUND_PAID: [409, 'The refund for this parcel is already marked Done in Refunds, so the scan cannot be cleared'],
 	DRC_SCAN_NOT_CLEARED: [409, 'Could not clear this scan. Refresh the page and try again'],
 	DRC_NOT_UNKNOWN: [409, 'This parcel is matched to an order now. Refresh the page'],
-	DRC_UNKNOWN_NOT_TODAY: [409, "Only an unknown parcel saved today can be deleted"]
+	DRC_UNKNOWN_NOT_TODAY: [409, "Only an unknown parcel saved today can be deleted"],
+	DRC_FWD_ORDER_AWB: [400, 'Type the order no. and the AWB'],
+	DRC_FWD_AWB_EXISTS: [409, 'This AWB is already in DRC (an RTO or an earlier delivery claim). Open it there']
 };
 
 export function fail(message: string): never {

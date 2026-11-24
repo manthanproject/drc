@@ -123,7 +123,7 @@
 {:else}
 <div class="card claim">
 	<div class="head">
-		<b>{isRet ? 'Return claim' : 'RTO claim'} · {claimReasonLabel(claim.reason)}</b>
+		<b>{isRet ? 'Return claim' : rto?.kind === 'forward' ? 'Delivery claim' : 'RTO claim'} · {claimReasonLabel(claim.reason)}</b>
 		<span class="pill p-{st.tone}">{st.label}</span>
 	</div>
 	<p class="small muted meta">

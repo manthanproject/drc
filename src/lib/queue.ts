@@ -88,7 +88,7 @@ export function buildQueue(
 			const ticket = c.channel === 'support_ticket';
 			// Phase 5: the pill says what to do next (Velocity's dispute status for panel disputes is inside followState)
 			const st = followState(c, r, rules, now)!;
-			const why = ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : 'Lost, ticket') : claimReasonLabel(c.reason);
+			const why = `${r.kind === 'forward' ? 'Delivery: ' : ''}${ticket ? (c.reason === 'mdnd' ? 'Not received, ticket' : c.reason === 'lost' ? 'Lost, ticket' : `${claimReasonLabel(c.reason)}, ticket`) : claimReasonLabel(c.reason)}`;
 			const d = ticket ? null : latestDispute(r);
 			const vel = d ? ` · Velocity: ${disputeStatus(d.status).label}` : '';
 			raised.push({
